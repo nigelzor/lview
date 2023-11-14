@@ -5,10 +5,10 @@ use clap::Parser;
 use lazy_static::lazy_static;
 use serde::de::Visitor;
 use serde::{de, Deserialize, Deserializer, Serialize};
-use std::collections::BTreeSet;
 use std::fmt::Display;
 use std::io::{BufReader, Read};
 use std::marker::PhantomData;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
@@ -23,14 +23,16 @@ struct CliArgs {
     /// Directory to serve
     #[arg(long)]
     dir: Option<String>,
+
+    /// Port to listen on
+    #[arg(short, long, default_value = "3000")]
+    port: u16,
 }
 
 type SharedState = Arc<RwLock<AppState>>;
 
 #[derive(Debug)]
 struct AppState {
-    genres: BTreeSet<String>,
-    years: BTreeSet<String>,
     files: Vec<File>,
 }
 
@@ -144,29 +146,17 @@ async fn main() {
         .map(|e| File::from_path(e, dir.as_path()))
         .collect::<Result<Vec<_>, anyhow::Error>>()
         .unwrap();
-    let genres = files
-        .iter()
-        .filter_map(|f| f.info.as_ref())
-        .flat_map(|i| i.genre.iter())
-        .cloned()
-        .collect::<BTreeSet<String>>();
-    let years = files
-        .iter()
-        .filter_map(|f| f.info.as_ref().map(|i| i.year.clone()))
-        .collect::<BTreeSet<String>>();
 
-    let shared_state: SharedState = Arc::new(RwLock::new(AppState {
-        genres,
-        years,
-        files,
-    }));
+    let shared_state: SharedState = Arc::new(RwLock::new(AppState { files }));
 
     let app = Router::new()
         .route("/", get(show_index))
         .route("/view/*path", get(show_cbz))
         .with_state(Arc::clone(&shared_state));
 
-    axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+    let sock_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, args.port));
+    println!("listening on http://{}", sock_addr);
+    axum::Server::bind(&sock_addr)
         .serve(app.into_make_service())
         .await
         .unwrap()
@@ -184,8 +174,6 @@ async fn show_index(
 ) -> Html<String> {
     let mut context = Context::new();
     let state = state.read().unwrap();
-    context.insert("genres", &state.genres);
-    context.insert("years", &state.years);
     let mut files = state
         .files
         .iter()
@@ -261,7 +249,11 @@ async fn show_cbz(
         0
     };
 
-    let previous = if page_index == 0 { None } else { pages.get(page_index - 1) };
+    let previous = if page_index == 0 {
+        None
+    } else {
+        pages.get(page_index - 1)
+    };
     let current = pages[page_index];
     let next = pages.get(page_index + 1);
 

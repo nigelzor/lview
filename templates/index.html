@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>lview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: white;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        table {
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+<a href="/"><h1>lview</h1></a>
+<table>
+    <thead>
+    <tr>
+        <th>Name</th>
+        <th>Theme</th>
+        <th>Year</th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for file in files %}
+    <tr>
+        <td><a href="view/{{file.relative_path}}">{{file.name}}</a></td>
+        <td>
+            {% for genre in file.info.Genre %}
+            {% if not loop.first %}
+            /
+            {% endif %}
+            <a href="/?genre={{genre | urlencode}}">{{genre}}</a>
+            {% endfor %}
+        </td>
+        <td><a href="?year={{file.info.Year | urlencode}}">{{file.info.Year}}</a></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</body>
+</html>

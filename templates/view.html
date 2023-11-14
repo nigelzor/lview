@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>lview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: white;
+            display: grid;
+
+            grid-template-columns: repeat(5, 1fr);
+            grid-template-rows: auto 1fr auto;
+            height: 100vh;
+        }
+
+        nav {
+            grid-column: span 5;
+        }
+
+        nav {
+            display: flex;
+            align-items: center;
+
+            & > * {
+                margin: 0 0.25rem
+            }
+
+            & h1 {
+                margin: 0;
+                font-size: inherit;
+            }
+
+            & a {
+                font-weight: bold;
+            }
+        }
+
+        img {
+            grid-column: 1/span 5;
+            grid-row: 2;
+
+            justify-self: center;
+            align-self: center;
+            object-fit: contain;
+            height: 100%;
+            width: 100%;
+        }
+
+        .overlay-previous {
+            grid-column: 1;
+            grid-row: 2;
+            display: flex;
+            align-items: center;
+
+            &:before {
+                content: "";
+                border: solid rgba(0, 0, 0, 10%);
+                border-width: 0 1em 1em 0;
+                padding: 1em;
+                transform: rotate(135deg);
+                margin-left: 1em;
+            }
+            &:hover:before {
+                border-color: rgba(0, 0, 0, 40%);
+            }
+        }
+        .overlay-next {
+            grid-column: 5;
+            grid-row: 2;
+            display: flex;
+            align-items: center;
+            justify-content: end;
+
+            &:before {
+                content: "";
+                border: solid rgba(0, 0, 0, 10%);
+                border-width: 0 1em 1em 0;
+                padding: 1em;
+                transform: rotate(-45deg);
+                margin-right: 1em;
+            }
+            &:hover:before {
+                border-color: rgba(0, 0, 0, 40%);
+            }
+        }
+    </style>
+</head>
+<body>
+<nav class="top">
+    <a href="/"><h1>lview</h1></a>
+    <span>Name: <b>{{file.name}}</b></span>
+    <span>Year: <a href="/?year={{file.info.Year | urlencode}}">{{file.info.Year}}</a></span>
+    <span>Theme:
+        {% for genre in file.info.Genre %}
+        {% if not loop.first %}
+        /
+        {% endif %}
+        <a href="/?genre={{genre | urlencode}}">{{genre}}</a>
+        {% endfor %}
+    </span>
+</nav>
+<img src="/view/{{file.relative_path}}/{{current | urlencode}}?raw" />
+{% if false %}
+<nav class="bottom">
+    {% if previous %}
+    <a class="previous" href="/view/{{file.relative_path}}/{{previous | urlencode}}">previous</a>
+    {% else %}
+    <span></span>
+    {% endif %}
+    <label>Page: <select>
+        {% for page in pages %}
+        {% if page == current %}
+        <option selected="selected" value="/view/{{file.relative_path}}/{{page | urlencode}}">{{page}}</option>
+        {% else %}
+        <option value="/view/{{file.relative_path}}/{{page | urlencode}}">{{page}}</option>
+        {% endif %}
+        {% endfor %}
+    </select></label>
+    {% if next %}
+    <a class="next" href="/view/{{file.relative_path}}/{{next | urlencode}}">next</a>
+    {% else %}
+    <span></span>
+    {% endif %}
+</nav>
+{% endif %}
+{% if next %}
+<a class="overlay-next" aria-label="next" href="/view/{{file.relative_path}}/{{next | urlencode}}"></a>
+{% endif %}
+{% if previous %}
+<a class="overlay-previous" aria-label="previous" href="/view/{{file.relative_path}}/{{previous | urlencode}}"></a>
+{% endif %}
+</body>
+</html>

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::io::{BufReader, Read};
 use std::marker::PhantomData;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
@@ -25,6 +25,10 @@ struct CliArgs {
     /// Directory to serve
     #[arg(long)]
     dir: Option<String>,
+
+    // Address to listen on
+    #[arg(long, default_value = "0.0.0.0")]
+    listen: String,
 
     /// Port to listen on
     #[arg(short, long, default_value = "3000")]
@@ -176,7 +180,7 @@ async fn main() {
         .route("/view/*path", get(show_cbz))
         .with_state(Arc::clone(&shared_state));
 
-    let sock_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, args.port));
+    let sock_addr = SocketAddr::from((IpAddr::from_str(args.listen.as_str()).unwrap(), args.port));
     println!("listening on http://{}", sock_addr);
     axum::Server::bind(&sock_addr)
         .serve(app.into_make_service())

@@ -29,7 +29,7 @@
 
             grid-template-columns: repeat(5, 1fr);
             grid-template-rows: auto 1fr auto;
-            height: 100vh;
+            height: 100dvh;
         }
 
         nav {
@@ -58,8 +58,6 @@
             grid-column: 1/span 5;
             grid-row: 2;
 
-            justify-self: center;
-            align-self: center;
             object-fit: contain;
             height: 100%;
             width: 100%;
@@ -128,29 +126,6 @@
     <button class="fullscreen" onclick="toggleFullScreen()">⛶</button>
 </nav>
 <img src="/view/{{file.relative_path}}/{{current | urlencode}}?raw" />
-{% if false %}
-<nav class="bottom">
-    {% if previous %}
-    <a class="previous" href="/view/{{file.relative_path}}/{{previous | urlencode}}">previous</a>
-    {% else %}
-    <span></span>
-    {% endif %}
-    <label>Page: <select>
-        {% for page in pages %}
-        {% if page == current %}
-        <option selected="selected" value="/view/{{file.relative_path}}/{{page | urlencode}}">{{page}}</option>
-        {% else %}
-        <option value="/view/{{file.relative_path}}/{{page | urlencode}}">{{page}}</option>
-        {% endif %}
-        {% endfor %}
-    </select></label>
-    {% if next %}
-    <a class="next" href="/view/{{file.relative_path}}/{{next | urlencode}}">next</a>
-    {% else %}
-    <span></span>
-    {% endif %}
-</nav>
-{% endif %}
 {% if next %}
 <a class="overlay next" aria-label="next" href="/view/{{file.relative_path}}/{{next | urlencode}}"></a>
 {% endif %}

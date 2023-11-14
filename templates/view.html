@@ -11,6 +11,14 @@
                 document.exitFullscreen();
             }
         }
+        document.addEventListener('keyup', (e) => {
+            if (e.key === "ArrowLeft") {
+                document.querySelector(".previous")?.click();
+            }
+            if (e.key === "ArrowRight") {
+                document.querySelector(".next")?.click();
+            }
+        });
     </script>
     <style>
         body {
@@ -57,8 +65,7 @@
             width: 100%;
         }
 
-        .overlay-previous {
-            grid-column: 1;
+        .overlay {
             grid-row: 2;
             display: flex;
             align-items: center;
@@ -68,30 +75,27 @@
                 border: solid rgba(0, 0, 0, 10%);
                 border-width: 0 1em 1em 0;
                 padding: 1em;
-                transform: rotate(135deg);
-                margin-left: 1em;
             }
             &:hover:before {
                 border-color: rgba(0, 0, 0, 40%);
             }
         }
-        .overlay-next {
+
+        .previous {
+            grid-column: 1;
+
+            &:before {
+                transform: rotate(135deg);
+                margin-left: 1em;
+            }
+        }
+        .next {
             grid-column: 5;
-            grid-row: 2;
-            display: flex;
-            align-items: center;
             justify-content: end;
 
             &:before {
-                content: "";
-                border: solid rgba(0, 0, 0, 10%);
-                border-width: 0 1em 1em 0;
-                padding: 1em;
                 transform: rotate(-45deg);
                 margin-right: 1em;
-            }
-            &:hover:before {
-                border-color: rgba(0, 0, 0, 40%);
             }
         }
 
@@ -148,10 +152,10 @@
 </nav>
 {% endif %}
 {% if next %}
-<a class="overlay-next" aria-label="next" href="/view/{{file.relative_path}}/{{next | urlencode}}"></a>
+<a class="overlay next" aria-label="next" href="/view/{{file.relative_path}}/{{next | urlencode}}"></a>
 {% endif %}
 {% if previous %}
-<a class="overlay-previous" aria-label="previous" href="/view/{{file.relative_path}}/{{previous | urlencode}}"></a>
+<a class="overlay previous" aria-label="previous" href="/view/{{file.relative_path}}/{{previous | urlencode}}"></a>
 {% endif %}
 </body>
 </html>

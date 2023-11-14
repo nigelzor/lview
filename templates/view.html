@@ -3,6 +3,15 @@
 <head>
     <title>lview</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else if (document.exitFullscreen) {
+                document.exitFullscreen();
+            }
+        }
+    </script>
     <style>
         body {
             margin: 0;
@@ -85,6 +94,17 @@
                 border-color: rgba(0, 0, 0, 40%);
             }
         }
+
+        .gap {
+            flex-grow: 1;
+        }
+
+        .fullscreen {
+            background: none;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -100,6 +120,8 @@
         <a href="/?genre={{genre | urlencode}}">{{genre}}</a>
         {% endfor %}
     </span>
+    <span class="gap"></span>
+    <button class="fullscreen" onclick="toggleFullScreen()">⛶</button>
 </nav>
 <img src="/view/{{file.relative_path}}/{{current | urlencode}}?raw" />
 {% if false %}

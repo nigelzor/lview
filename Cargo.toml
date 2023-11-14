@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.75"
 axum = "0.6.20"
+byte-unit = "4.0.19"
 clap = { version = "4.4.8", features = ["derive"] }
 lazy_static = "1.4.0"
 quick-xml = { version = "0.31.0", features = ["serialize"] }

@@ -16,6 +16,19 @@
 
         table {
             margin: 0 auto;
+            border-collapse: collapse;
+        }
+
+        td {
+            padding: 0.1rem 0.5rem;
+        }
+
+        tbody tr td:nth-child(4) {
+            text-align: center;
+        }
+
+        tbody tr td:nth-child(5) {
+            text-align: right;
         }
     </style>
 </head>
@@ -27,6 +40,8 @@
         <th>Name</th>
         <th>Theme</th>
         <th>Year</th>
+        <th>Pages</th>
+        <th>Size</th>
     </tr>
     </thead>
     <tbody>
@@ -42,6 +57,8 @@
             {% endfor %}
         </td>
         <td><a href="?year={{file.info.Year | urlencode}}">{{file.info.Year}}</a></td>
+        <td>{{file.pages}}</td>
+        <td>{{file.size | bytes}}</td>
     </tr>
     {% endfor %}
     </tbody>

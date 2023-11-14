@@ -5,6 +5,8 @@ use clap::Parser;
 use lazy_static::lazy_static;
 use serde::de::Visitor;
 use serde::{de, Deserialize, Deserializer, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::io::{BufReader, Read};
 use std::marker::PhantomData;
@@ -13,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::{env, fmt, fs, io};
-use tera::{Context, Tera};
+use tera::{try_get_value, Context, Tera};
 use zip::ZipArchive;
 
 /// Serve cbz files from directory
@@ -42,6 +44,8 @@ struct File {
     relative_path: String,
     path: PathBuf,
     info: Option<ComicInfo>,
+    pages: usize,
+    size: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -99,7 +103,10 @@ where
 impl File {
     fn from_path(path: PathBuf, dir: &Path) -> Result<Self, anyhow::Error> {
         let file = fs::File::open(path.as_path())?;
+        let metadata = file.metadata()?;
+
         let mut zip = ZipArchive::new(file)?;
+        let pages = zip.file_names().filter(|f| should_expose(f)).count();
         let (name, info) = match zip.by_name("ComicInfo.xml") {
             Ok(info_xml) => {
                 let info: ComicInfo = quick_xml::de::from_reader(BufReader::new(info_xml))?;
@@ -114,6 +121,8 @@ impl File {
             relative_path: path.strip_prefix(dir).unwrap().to_str().unwrap().into(),
             path,
             info,
+            pages,
+            size: metadata.len(),
         })
     }
 }
@@ -129,8 +138,21 @@ fn find_files(dir: &Path) -> Result<Vec<PathBuf>, io::Error> {
         .collect::<Result<Vec<_>, io::Error>>()
 }
 
+fn bytes_filter(value: &Value, _args: &HashMap<String, Value>) -> tera::Result<Value> {
+    let n = try_get_value!("bytes", "value", u64, value);
+    Ok(Value::String(
+        byte_unit::Byte::from_bytes(n.into())
+            .get_appropriate_unit(false)
+            .to_string(),
+    ))
+}
+
 lazy_static! {
-    static ref TEMPLATES: Tera = Tera::new("templates/**/*.html").unwrap();
+    static ref TEMPLATES: Tera = {
+        let mut t = Tera::new("templates/**/*.html").unwrap();
+        t.register_filter("bytes", bytes_filter);
+        t
+    };
 }
 
 #[tokio::main]

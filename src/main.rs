@@ -2,9 +2,11 @@ use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{extract::State, response::Html, routing::get, Router};
 use clap::Parser;
+use percent_encoding::{utf8_percent_encode, PercentEncode, NON_ALPHANUMERIC};
 use sailfish::TemplateOnce;
 use serde::de::Visitor;
 use serde::{de, Deserialize, Deserializer, Serialize};
+use std::borrow::Borrow;
 use std::fmt::Display;
 use std::io::{BufReader, Read};
 use std::marker::PhantomData;
@@ -13,7 +15,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::{env, fmt, fs, io};
-use std::borrow::Borrow;
 use zip::ZipArchive;
 
 /// Serve cbz files from directory
@@ -317,10 +318,29 @@ async fn show_cbz(
 
     let ctx = ViewTemplate {
         file,
-        // TODO: urlencode path segments
-        image_url: format!("/view/{}/{}?raw", file.relative_path, current),
-        next_url: next.map(|next| format!("/view/{}/{}", file.relative_path, next)),
-        previous_url: previous.map(|previous| format!("/view/{}/{}", file.relative_path, previous)),
+        image_url: format!(
+            "/view/{}/{}?raw",
+            encode_path_segment(file.relative_path.as_str()),
+            encode_path_segment(current)
+        ),
+        next_url: next.map(|next| {
+            format!(
+                "/view/{}/{}",
+                encode_path_segment(file.relative_path.as_str()),
+                encode_path_segment(next)
+            )
+        }),
+        previous_url: previous.map(|previous| {
+            format!(
+                "/view/{}/{}",
+                encode_path_segment(file.relative_path.as_str()),
+                encode_path_segment(previous)
+            )
+        }),
     };
     Html(ctx.render_once().unwrap()).into_response()
+}
+
+fn encode_path_segment(str: &str) -> PercentEncode {
+    utf8_percent_encode(str, NON_ALPHANUMERIC)
 }

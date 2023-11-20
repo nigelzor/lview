@@ -608,6 +608,7 @@ dependencies = [
  "byte-unit",
  "clap",
  "form_urlencoded",
+ "percent-encoding",
  "quick-xml",
  "sailfish",
  "serde",

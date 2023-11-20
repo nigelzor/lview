@@ -2,11 +2,9 @@ use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{extract::State, response::Html, routing::get, Router};
 use clap::Parser;
-use lazy_static::lazy_static;
+use sailfish::TemplateOnce;
 use serde::de::Visitor;
 use serde::{de, Deserialize, Deserializer, Serialize};
-use serde_json::Value;
-use std::collections::HashMap;
 use std::fmt::Display;
 use std::io::{BufReader, Read};
 use std::marker::PhantomData;
@@ -15,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::{env, fmt, fs, io};
-use tera::{try_get_value, Context, Tera};
+use std::borrow::Borrow;
 use zip::ZipArchive;
 
 /// Serve cbz files from directory
@@ -129,6 +127,38 @@ impl File {
             size: metadata.len(),
         })
     }
+
+    fn genres(&self) -> &[String] {
+        if self.info.is_none() {
+            return <&[String]>::default();
+        }
+        &self.info.as_ref().unwrap().genre
+    }
+
+    fn year(&self) -> &str {
+        self.info.as_ref().map_or("", |i| &i.year)
+    }
+}
+
+fn genre_search_url(genre: &str) -> String {
+    search_url([("genre", genre)])
+}
+
+fn year_search_url(year: &str) -> String {
+    search_url([("year", year)])
+}
+
+fn search_url<I, K, V>(iter: I) -> String
+where
+    I: IntoIterator,
+    I::Item: Borrow<(K, V)>,
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    let base = "/?";
+    let mut query = form_urlencoded::Serializer::for_suffix(String::from(base), base.len());
+    query.extend_pairs(iter);
+    query.finish()
 }
 
 fn find_files(dir: &Path) -> Result<Vec<PathBuf>, io::Error> {
@@ -142,21 +172,25 @@ fn find_files(dir: &Path) -> Result<Vec<PathBuf>, io::Error> {
         .collect::<Result<Vec<_>, io::Error>>()
 }
 
-fn bytes_filter(value: &Value, _args: &HashMap<String, Value>) -> tera::Result<Value> {
-    let n = try_get_value!("bytes", "value", u64, value);
-    Ok(Value::String(
-        byte_unit::Byte::from_bytes(n.into())
-            .get_appropriate_unit(false)
-            .to_string(),
-    ))
+fn format_bytes(value: u64) -> String {
+    byte_unit::Byte::from_bytes(value.into())
+        .get_appropriate_unit(false)
+        .to_string()
 }
 
-lazy_static! {
-    static ref TEMPLATES: Tera = {
-        let mut t = Tera::new("templates/**/*.html").unwrap();
-        t.register_filter("bytes", bytes_filter);
-        t
-    };
+#[derive(TemplateOnce)]
+#[template(path = "index.stpl")]
+struct IndexTemplate<'a> {
+    files: Vec<&'a File>,
+}
+
+#[derive(TemplateOnce)]
+#[template(path = "view.stpl")]
+struct ViewTemplate<'a> {
+    file: &'a File,
+    image_url: String,
+    next_url: Option<String>,
+    previous_url: Option<String>,
 }
 
 #[tokio::main]
@@ -198,7 +232,6 @@ async fn show_index(
     State(state): State<SharedState>,
     query: axum::extract::Query<IndexQuery>,
 ) -> Html<String> {
-    let mut context = Context::new();
     let state = state.read().unwrap();
     let mut files = state
         .files
@@ -214,8 +247,8 @@ async fn show_index(
         .collect::<Vec<_>>();
     files.sort_by_key(|f| &f.name);
 
-    context.insert("files", &files);
-    Html(TEMPLATES.render("index.html", &context).unwrap())
+    let ctx = IndexTemplate { files };
+    Html(ctx.render_once().unwrap())
 }
 
 #[derive(Deserialize)]
@@ -232,7 +265,6 @@ async fn show_cbz(
     axum::extract::Path(path): axum::extract::Path<String>,
     query: axum::extract::Query<CbzQuery>,
 ) -> Response {
-    let mut context = Context::new();
     let state = state.read().unwrap();
 
     let file = state
@@ -283,10 +315,12 @@ async fn show_cbz(
     let current = pages[page_index];
     let next = pages.get(page_index + 1);
 
-    context.insert("file", file);
-    context.insert("pages", &pages);
-    context.insert("previous", &previous);
-    context.insert("current", &current);
-    context.insert("next", &next);
-    Html(TEMPLATES.render("view.html", &context).unwrap()).into_response()
+    let ctx = ViewTemplate {
+        file,
+        // TODO: urlencode path segments
+        image_url: format!("/view/{}/{}?raw", file.relative_path, current),
+        next_url: next.map(|next| format!("/view/{}/{}", file.relative_path, next)),
+        previous_url: previous.map(|previous| format!("/view/{}/{}", file.relative_path, previous)),
+    };
+    Html(ctx.render_once().unwrap()).into_response()
 }

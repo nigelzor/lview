@@ -112,25 +112,25 @@
 <body>
 <nav class="top">
     <a href="/"><h1>lview</h1></a>
-    <span>Name: <b>{{file.name}}</b></span>
-    <span>Year: <a href="/?year={{file.info.Year | urlencode}}">{{file.info.Year}}</a></span>
+    <span>Name: <b><%= file.name %></b></span>
+    <span>Year: <a href="<%= year_search_url(file.year()) %>"><%= file.year() %></a></span>
     <span>Theme:
-        {% for genre in file.info.Genre %}
-        {% if not loop.first %}
+        <% for (i, genre) in file.genres().iter().enumerate() { %>
+        <% if i > 0 { %>
         /
-        {% endif %}
-        <a href="/?genre={{genre | urlencode}}">{{genre}}</a>
-        {% endfor %}
+        <% } %>
+        <a href="<%= genre_search_url(genre) %>"><%= genre %></a>
+        <% } %>
     </span>
     <span class="gap"></span>
     <button class="fullscreen" onclick="toggleFullScreen()">⛶</button>
 </nav>
-<img src="/view/{{file.relative_path}}/{{current | urlencode}}?raw" />
-{% if next %}
-<a class="overlay next" aria-label="next" href="/view/{{file.relative_path}}/{{next | urlencode}}"></a>
-{% endif %}
-{% if previous %}
-<a class="overlay previous" aria-label="previous" href="/view/{{file.relative_path}}/{{previous | urlencode}}"></a>
-{% endif %}
+<img src="<%= image_url %>" />
+<% if next_url.is_some() { %>
+<a class="overlay next" aria-label="next" href="<%= next_url.unwrap() %>"></a>
+<% } %>
+<% if previous_url.is_some() { %>
+<a class="overlay previous" aria-label="previous" href="<%= previous_url.unwrap() %>"></a>
+<% } %>
 </body>
 </html>

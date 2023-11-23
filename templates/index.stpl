@@ -37,11 +37,11 @@
 <table>
     <thead>
     <tr>
-        <th>Name</th>
-        <th>Theme</th>
-        <th>Year</th>
-        <th>Pages</th>
-        <th>Size</th>
+        <th><a href="<%= query.clone().with_sort(SortField::Name).to_url() %>">Name</a></th>
+        <th><a href="<%= query.clone().with_sort(SortField::Genre).to_url() %>">Theme</a></th>
+        <th><a href="<%= query.clone().with_sort(SortField::Year).to_url() %>">Year</a></th>
+        <th><a href="<%= query.clone().with_sort(SortField::Pages).to_url() %>">Pages</a></th>
+        <th><a href="<%= query.clone().with_sort(SortField::Size).to_url() %>">Size</a></th>
     </tr>
     </thead>
     <tbody>
@@ -53,10 +53,10 @@
             <% if i > 0 { %>
             /
             <% } %>
-            <a href="<%= genre_search_url(genre) %>"><%= genre %></a>
+            <a href="<%= query.clone().with_genre_filter(Some(genre.clone())).to_url() %>"><%= genre %></a>
             <% } %>
         </td>
-        <td><a href="<%= year_search_url(file.year()) %>"><%= file.year() %></a></td>
+        <td><a href="<%= query.clone().with_year_filter(Some(file.year().to_string())).to_url() %>"><%= file.year() %></a></td>
         <td><%= file.pages %></td>
         <td><%= format_bytes(file.size) %></td>
     </tr>

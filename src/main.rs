@@ -1,3 +1,4 @@
+use axum::extract::Query;
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{extract::State, response::Html, routing::get, Router};
@@ -6,8 +7,7 @@ use percent_encoding::{utf8_percent_encode, PercentEncode, NON_ALPHANUMERIC};
 use sailfish::TemplateOnce;
 use serde::de::Visitor;
 use serde::{de, Deserialize, Deserializer, Serialize};
-use std::borrow::Borrow;
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 use std::io::{BufReader, Read};
 use std::marker::PhantomData;
 use std::net::{IpAddr, SocketAddr};
@@ -142,24 +142,15 @@ impl File {
 }
 
 fn genre_search_url(genre: &str) -> String {
-    search_url([("genre", genre)])
+    IndexQuery::default()
+        .with_genre_filter(Some(genre.to_string()))
+        .to_url()
 }
 
 fn year_search_url(year: &str) -> String {
-    search_url([("year", year)])
-}
-
-fn search_url<I, K, V>(iter: I) -> String
-where
-    I: IntoIterator,
-    I::Item: Borrow<(K, V)>,
-    K: AsRef<str>,
-    V: AsRef<str>,
-{
-    let base = "/?";
-    let mut query = form_urlencoded::Serializer::for_suffix(String::from(base), base.len());
-    query.extend_pairs(iter);
-    query.finish()
+    IndexQuery::default()
+        .with_year_filter(Some(year.to_string()))
+        .to_url()
 }
 
 fn find_files(dir: &Path) -> Result<Vec<PathBuf>, io::Error> {
@@ -183,6 +174,7 @@ fn format_bytes(value: u64) -> String {
 #[template(path = "index.stpl")]
 struct IndexTemplate<'a> {
     files: Vec<&'a File>,
+    query: IndexQuery,
 }
 
 #[derive(TemplateOnce)]
@@ -223,15 +215,73 @@ async fn main() {
         .unwrap()
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Default)]
 struct IndexQuery {
     genre: Option<String>,
     year: Option<String>,
+    sort: Option<SortField>,
+}
+
+impl IndexQuery {
+    fn with_sort(self, sort: SortField) -> Self {
+        Self {
+            sort: Some(sort),
+            ..self
+        }
+    }
+
+    fn with_genre_filter(self, genre: Option<String>) -> Self {
+        Self { genre, ..self }
+    }
+
+    fn with_year_filter(self, year: Option<String>) -> Self {
+        Self { year, ..self }
+    }
+
+    fn to_url(&self) -> String {
+        let base = "/?";
+        let mut query = form_urlencoded::Serializer::for_suffix(String::from(base), base.len());
+        self.genre
+            .as_ref()
+            .map(|g| query.append_pair("genre", g.as_str()));
+        self.year
+            .as_ref()
+            .map(|y| query.append_pair("year", y.as_str()));
+        self.sort
+            .map(|s| query.append_pair("sort", s.to_string().as_str()));
+        query.finish()
+    }
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum SortField {
+    Name,
+    Year,
+    Genre,
+    Pages,
+    Size,
+}
+
+impl Display for SortField {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                SortField::Name => "name",
+                SortField::Year => "year",
+                SortField::Genre => "genre",
+                SortField::Pages => "pages",
+                SortField::Size => "size",
+            }
+        )
+    }
 }
 
 async fn show_index(
     State(state): State<SharedState>,
-    query: axum::extract::Query<IndexQuery>,
+    Query(query): Query<IndexQuery>,
 ) -> Html<String> {
     let state = state.read().unwrap();
     let mut files = state
@@ -246,9 +296,17 @@ async fn show_index(
             _ => true,
         })
         .collect::<Vec<_>>();
-    files.sort_by_key(|f| &f.name);
 
-    let ctx = IndexTemplate { files };
+    let sort = query.sort.unwrap_or(SortField::Name);
+    match sort {
+        SortField::Name => files.sort_by_key(|f| &f.name),
+        SortField::Year => files.sort_by_key(|f| f.year()),
+        SortField::Genre => files.sort_by_key(|f| f.genres()),
+        SortField::Pages => files.sort_by_key(|f| f.pages),
+        SortField::Size => files.sort_by_key(|f| f.size),
+    }
+
+    let ctx = IndexTemplate { files, query };
     Html(ctx.render_once().unwrap())
 }
 

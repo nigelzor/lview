@@ -223,11 +223,8 @@ struct IndexQuery {
 }
 
 impl IndexQuery {
-    fn with_sort(self, sort: SortField) -> Self {
-        Self {
-            sort: Some(sort),
-            ..self
-        }
+    fn with_sort(self, sort: Option<SortField>) -> Self {
+        Self { sort: sort.map(|s| s), ..self }
     }
 
     fn with_genre_filter(self, genre: Option<String>) -> Self {
@@ -253,7 +250,11 @@ impl IndexQuery {
     }
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize)]
+fn render_sort_link(query: &IndexQuery, field: SortField) -> String {
+    format!("<a href=\"{}\">↑</a>", query.clone().with_sort(Some(field)).to_url())
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 #[serde(rename_all = "lowercase")]
 enum SortField {
     Name,

@@ -30,6 +30,10 @@
         tbody tr td:nth-child(5) {
             text-align: right;
         }
+
+        th a {
+            text-decoration: none;
+        }
     </style>
 </head>
 <body>
@@ -37,11 +41,26 @@
 <table>
     <thead>
     <tr>
-        <th><a href="<%= query.clone().with_sort(SortField::Name).to_url() %>">Name</a></th>
-        <th><a href="<%= query.clone().with_sort(SortField::Genre).to_url() %>">Theme</a></th>
-        <th><a href="<%= query.clone().with_sort(SortField::Year).to_url() %>">Year</a></th>
-        <th><a href="<%= query.clone().with_sort(SortField::Pages).to_url() %>">Pages</a></th>
-        <th><a href="<%= query.clone().with_sort(SortField::Size).to_url() %>">Size</a></th>
+        <th>
+            Name
+            <%- render_sort_link(&query, SortField::Name) %>
+        </th>
+        <th>
+            Theme
+            <%- render_sort_link(&query, SortField::Genre) %>
+        </th>
+        <th>
+            Year
+            <%- render_sort_link(&query, SortField::Year) %>
+        </th>
+        <th>
+            Pages
+            <%- render_sort_link(&query, SortField::Pages) %>
+        </th>
+        <th>
+            Size
+            <%- render_sort_link(&query, SortField::Size) %>
+        </th>
     </tr>
     </thead>
     <tbody>

@@ -5,11 +5,12 @@ use axum::{extract::State, response::Html, routing::get, Router};
 use clap::Parser;
 use percent_encoding::{utf8_percent_encode, PercentEncode, NON_ALPHANUMERIC};
 use sailfish::TemplateOnce;
-use serde::de::Visitor;
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
+use serde_with::formats::CommaSeparator;
+use serde_with::{serde_as, DeserializeFromStr, NoneAsEmptyString, StringWithSeparator};
+use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
 use std::io::{BufReader, Read};
-use std::marker::PhantomData;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -39,6 +40,8 @@ type SharedState = Arc<RwLock<AppState>>;
 #[derive(Debug)]
 struct AppState {
     files: Vec<File>,
+    all_years: BTreeSet<String>,
+    all_genres: BTreeSet<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -51,6 +54,7 @@ struct File {
     size: u64,
 }
 
+#[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct ComicInfo {
     #[serde(rename = "Title")]
@@ -63,44 +67,11 @@ struct ComicInfo {
     year: String,
     #[serde(rename = "Publisher")]
     publisher: String,
-    #[serde(rename = "Genre", deserialize_with = "comma_separated")]
+    #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
+    #[serde(rename = "Genre")]
     genre: Vec<String>,
     #[serde(rename = "Web")]
     web: String,
-}
-
-fn comma_separated<'de, V, T, D>(deserializer: D) -> Result<V, D::Error>
-where
-    V: FromIterator<T>,
-    T: FromStr,
-    T::Err: Display,
-    D: Deserializer<'de>,
-{
-    struct CommaSeparated<V, T>(PhantomData<V>, PhantomData<T>);
-
-    impl<'de, V, T> Visitor<'de> for CommaSeparated<V, T>
-    where
-        V: FromIterator<T>,
-        T: FromStr,
-        T::Err: Display,
-    {
-        type Value = V;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("string containing comma-separated elements")
-        }
-
-        fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
-        where
-            E: de::Error,
-        {
-            let iter = s.split(",").map(FromStr::from_str);
-            Result::from_iter(iter).map_err(de::Error::custom)
-        }
-    }
-
-    let visitor = CommaSeparated(PhantomData, PhantomData);
-    deserializer.deserialize_str(visitor)
 }
 
 impl File {
@@ -175,6 +146,8 @@ fn format_bytes(value: u64) -> String {
 struct IndexTemplate<'a> {
     files: Vec<&'a File>,
     query: IndexQuery,
+    all_years: &'a BTreeSet<String>,
+    all_genres: &'a BTreeSet<String>,
 }
 
 #[derive(TemplateOnce)]
@@ -200,7 +173,22 @@ async fn main() {
         .collect::<Result<Vec<_>, anyhow::Error>>()
         .unwrap();
 
-    let shared_state: SharedState = Arc::new(RwLock::new(AppState { files }));
+    // TODO: this over-allocates strings
+    let all_years = files
+        .iter()
+        .map(|f| f.year().to_string())
+        .collect::<BTreeSet<_>>();
+    let all_genres = files
+        .iter()
+        .flat_map(|f| f.genres())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+
+    let shared_state: SharedState = Arc::new(RwLock::new(AppState {
+        files,
+        all_years,
+        all_genres,
+    }));
 
     let app = Router::new()
         .route("/", get(show_index))
@@ -215,16 +203,23 @@ async fn main() {
         .unwrap()
 }
 
+#[serde_as]
 #[derive(Clone, Deserialize, Default)]
 struct IndexQuery {
+    #[serde_as(as = "NoneAsEmptyString")]
+    #[serde(default)]
     genre: Option<String>,
+    #[serde_as(as = "NoneAsEmptyString")]
+    #[serde(default)]
     year: Option<String>,
-    sort: Option<SortField>,
+    #[serde_as(as = "NoneAsEmptyString")]
+    #[serde(default)]
+    sort: Option<FileSort>,
 }
 
 impl IndexQuery {
-    fn with_sort(self, sort: Option<SortField>) -> Self {
-        Self { sort: sort.map(|s| s), ..self }
+    fn with_sort(self, sort: Option<FileSort>) -> Self {
+        Self { sort, ..self }
     }
 
     fn with_genre_filter(self, genre: Option<String>) -> Self {
@@ -245,18 +240,52 @@ impl IndexQuery {
             .as_ref()
             .map(|y| query.append_pair("year", y.as_str()));
         self.sort
-            .map(|s| query.append_pair("sort", s.to_string().as_str()));
+            .map(|s| query.append_pair("sort", s.to_query().as_str()));
         query.finish()
     }
 }
 
-fn render_sort_link(query: &IndexQuery, field: SortField) -> String {
-    format!("<a href=\"{}\">↑</a>", query.clone().with_sort(Some(field)).to_url())
+fn render_sort_link(query: &IndexQuery, field: FileField, title: &str) -> String {
+    if query.sort.is_some_and(|s| s.field == field) {
+        let (current, next) = match query.sort.unwrap().direction {
+            Direction::Ascending => ("↑", Direction::Descending),
+            Direction::Descending => ("↓", Direction::Ascending),
+        };
+        format!(
+            "<a href=\"{}\">{} <span>{}</span></a>",
+            query
+                .clone()
+                .with_sort(Some(FileSort {
+                    direction: next,
+                    field,
+                }))
+                .to_url(),
+            title,
+            current
+        )
+    } else {
+        format!(
+            "<a href=\"{}\">{}</a>",
+            query
+                .clone()
+                .with_sort(Some(FileSort {
+                    direction: Direction::Ascending,
+                    field,
+                }))
+                .to_url(),
+            title
+        )
+    }
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-#[serde(rename_all = "lowercase")]
-enum SortField {
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+enum Direction {
+    Ascending,
+    Descending,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+enum FileField {
     Name,
     Year,
     Genre,
@@ -264,19 +293,62 @@ enum SortField {
     Size,
 }
 
-impl Display for SortField {
+#[derive(Copy, Clone, Eq, PartialEq, Debug, DeserializeFromStr)]
+struct FileSort {
+    direction: Direction,
+    field: FileField,
+}
+
+impl FileSort {
+    fn to_query(&self) -> String {
+        match self.direction {
+            Direction::Ascending => self.field.to_string(),
+            Direction::Descending => format!("-{}", self.field),
+        }
+    }
+}
+
+impl FromStr for FileSort {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (direction, s) = match s.strip_prefix("-") {
+            Some(s) => (Direction::Descending, s),
+            None => (Direction::Ascending, s),
+        };
+        let field = s.parse::<FileField>()?;
+        return Ok(FileSort { direction, field });
+    }
+}
+
+impl Display for FileField {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
             match self {
-                SortField::Name => "name",
-                SortField::Year => "year",
-                SortField::Genre => "genre",
-                SortField::Pages => "pages",
-                SortField::Size => "size",
+                FileField::Name => "name",
+                FileField::Year => "year",
+                FileField::Genre => "genre",
+                FileField::Pages => "pages",
+                FileField::Size => "size",
             }
         )
+    }
+}
+
+impl FromStr for FileField {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "name" => Ok(FileField::Name),
+            "year" => Ok(FileField::Year),
+            "genre" => Ok(FileField::Genre),
+            "pages" => Ok(FileField::Pages),
+            "size" => Ok(FileField::Size),
+            _ => Err(format!("Invalid FileField '{}'", s)),
+        }
     }
 }
 
@@ -289,25 +361,36 @@ async fn show_index(
         .files
         .iter()
         .filter(|f| match &query.genre {
-            Some(genre) => genre == "" || f.info.as_ref().is_some_and(|i| i.genre.contains(&genre)),
+            Some(genre) => f.info.as_ref().is_some_and(|i| i.genre.contains(&genre)),
             _ => true,
         })
         .filter(|f| match &query.year {
-            Some(year) => year == "" || f.info.as_ref().is_some_and(|i| &i.year == year),
+            Some(year) => f.info.as_ref().is_some_and(|i| &i.year == year),
             _ => true,
         })
         .collect::<Vec<_>>();
 
-    let sort = query.sort.unwrap_or(SortField::Name);
-    match sort {
-        SortField::Name => files.sort_by_key(|f| &f.name),
-        SortField::Year => files.sort_by_key(|f| f.year()),
-        SortField::Genre => files.sort_by_key(|f| f.genres()),
-        SortField::Pages => files.sort_by_key(|f| f.pages),
-        SortField::Size => files.sort_by_key(|f| f.size),
+    let sort = query.sort.unwrap_or(FileSort {
+        direction: Direction::Ascending,
+        field: FileField::Name,
+    });
+    match sort.field {
+        FileField::Name => files.sort_by_key(|f| &f.name),
+        FileField::Year => files.sort_by_key(|f| f.year()),
+        FileField::Genre => files.sort_by_key(|f| f.genres()),
+        FileField::Pages => files.sort_by_key(|f| f.pages),
+        FileField::Size => files.sort_by_key(|f| f.size),
+    }
+    if sort.direction == Direction::Descending {
+        files.reverse()
     }
 
-    let ctx = IndexTemplate { files, query };
+    let ctx = IndexTemplate {
+        files,
+        query,
+        all_years: &state.all_years,
+        all_genres: &state.all_genres,
+    };
     Html(ctx.render_once().unwrap())
 }
 

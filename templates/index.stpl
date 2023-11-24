@@ -31,35 +31,72 @@
             text-align: right;
         }
 
-        th a {
-            text-decoration: none;
+        th a span {
+            font-size: smaller;
+        }
+
+        form {
+            text-align: center;
+            margin: 1em 0;
         }
     </style>
 </head>
 <body>
 <a href="/"><h1>lview</h1></a>
+<form>
+    <label>Theme:
+    <select name="genre">
+    <% if query.genre.is_none() { %>
+    <option value="" selected>All</option>
+    <% } else { %>
+    <option value="">All</option>
+    <% } %>
+    <% for genre in all_genres { %>
+    <% if query.genre.as_ref().is_some_and(|y| y == genre) { %>
+    <option selected><%= genre %></option>
+    <% } else { %>
+    <option><%= genre %></option>
+    <% } %>
+    <% } %>
+    </select>
+    </label>
+    <label>Year:
+    <select name="year">
+    <% if query.year.is_none() { %>
+    <option value="" selected>All</option>
+    <% } else { %>
+    <option value="">All</option>
+    <% } %>
+    <% for year in all_years { %>
+    <% if query.year.as_ref().is_some_and(|y| y == year) { %>
+    <option selected><%= year %></option>
+    <% } else { %>
+    <option><%= year %></option>
+    <% } %>
+    <% } %>
+    </select>
+    </label>
+    <input type="hidden" name="sort" value="<%= query.sort.map_or(String::new(), |s| s.to_query()) %>" />
+    <button type="submit">Filter</button>
+    <a href="/"><button type="button">Clear</button></a>
+</form>
 <table>
     <thead>
     <tr>
         <th>
-            Name
-            <%- render_sort_link(&query, SortField::Name) %>
+            <%- render_sort_link(&query, FileField::Name, "Name") %>
         </th>
         <th>
-            Theme
-            <%- render_sort_link(&query, SortField::Genre) %>
+            <%- render_sort_link(&query, FileField::Genre, "Theme") %>
         </th>
         <th>
-            Year
-            <%- render_sort_link(&query, SortField::Year) %>
+            <%- render_sort_link(&query, FileField::Year, "Year") %>
         </th>
         <th>
-            Pages
-            <%- render_sort_link(&query, SortField::Pages) %>
+            <%- render_sort_link(&query, FileField::Pages, "Pages") %>
         </th>
         <th>
-            Size
-            <%- render_sort_link(&query, SortField::Size) %>
+            <%- render_sort_link(&query, FileField::Size, "Size") %>
         </th>
     </tr>
     </thead>
@@ -72,10 +109,10 @@
             <% if i > 0 { %>
             /
             <% } %>
-            <a href="<%= query.clone().with_genre_filter(Some(genre.clone())).to_url() %>"><%= genre %></a>
+            <a href="<%= genre_search_url(genre) %>"><%= genre %></a>
             <% } %>
         </td>
-        <td><a href="<%= query.clone().with_year_filter(Some(file.year().to_string())).to_url() %>"><%= file.year() %></a></td>
+        <td><a href="<%= year_search_url(file.year()) %>"><%= file.year() %></a></td>
         <td><%= file.pages %></td>
         <td><%= format_bytes(file.size) %></td>
     </tr>

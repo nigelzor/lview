@@ -26,7 +26,7 @@ struct CliArgs {
     #[arg(long)]
     dir: Option<String>,
 
-    // Address to listen on
+    /// Address to listen on
     #[arg(long, default_value = "0.0.0.0")]
     listen: String,
 

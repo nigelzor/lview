@@ -1,13 +1,13 @@
 use axum::extract::Query;
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::{extract::State, response::Html, routing::get, Router};
+use axum::{Router, extract::State, response::Html, routing::get};
 use clap::Parser;
-use percent_encoding::{utf8_percent_encode, PercentEncode, NON_ALPHANUMERIC};
+use percent_encoding::{NON_ALPHANUMERIC, PercentEncode, utf8_percent_encode};
 use sailfish::TemplateOnce;
 use serde::{Deserialize, Serialize};
 use serde_with::formats::CommaSeparator;
-use serde_with::{serde_as, DeserializeFromStr, NoneAsEmptyString, StringWithSeparator};
+use serde_with::{DeserializeFromStr, NoneAsEmptyString, StringWithSeparator, serde_as};
 use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
 use std::io::{BufReader, Read};

@@ -31,6 +31,10 @@
             padding: 0.1rem 0.5rem;
         }
 
+        tbody tr:hover {
+            background-color: #eee;
+        }
+
         tbody tr td:nth-child(4) {
             text-align: center;
         }
@@ -91,21 +95,11 @@
 <table>
     <thead>
     <tr>
-        <th>
-            <%- render_sort_link(&query, FileField::Name, "Name") %>
-        </th>
-        <th>
-            <%- render_sort_link(&query, FileField::Genre, "Theme") %>
-        </th>
-        <th>
-            <%- render_sort_link(&query, FileField::Year, "Year") %>
-        </th>
-        <th>
-            <%- render_sort_link(&query, FileField::Pages, "Pages") %>
-        </th>
-        <th>
-            <%- render_sort_link(&query, FileField::Size, "Size") %>
-        </th>
+        <th><%- render_sort_link(&query, FileField::Name, "Name") %></th>
+        <th><%- render_sort_link(&query, FileField::Genre, "Theme") %></th>
+        <th><%- render_sort_link(&query, FileField::Year, "Year") %></th>
+        <th><%- render_sort_link(&query, FileField::Pages, "Pages") %></th>
+        <th><%- render_sort_link(&query, FileField::Size, "Size") %></th>
     </tr>
     </thead>
     <tbody>

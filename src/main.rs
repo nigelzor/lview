@@ -146,14 +146,21 @@ fn year_search_url(year: &str) -> String {
 }
 
 fn find_files(dir: &Path) -> Result<Vec<PathBuf>, io::Error> {
-    // TODO: make recursive
-    fs::read_dir(dir)?
-        .map(|res| res.map(|e| e.path()))
-        .filter(|p| {
-            p.as_ref()
-                .is_ok_and(|b| b.extension().is_some_and(|ext| ext == "cbz"))
-        })
-        .collect::<Result<Vec<_>, io::Error>>()
+    fn collect_files(parent: &Path, results: &mut Vec<PathBuf>) -> Result<(), io::Error> {
+        for entry in fs::read_dir(parent)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                collect_files(&path, results)?
+            } else if path.extension().is_some_and(|ext| ext == "cbz") {
+                results.push(path)
+            }
+        }
+        Ok(())
+    }
+
+    let mut results: Vec<PathBuf> = vec![];
+    collect_files(dir, &mut results)?;
+    Ok(results)
 }
 
 fn format_bytes(value: u64) -> String {

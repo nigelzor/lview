@@ -44,6 +44,26 @@ struct AppState {
     all_genres: BTreeSet<String>,
 }
 
+impl AppState {
+    fn from_files(files: Vec<File>) -> Self {
+        let all_years = files
+            .iter()
+            .map(|f| f.year().to_string())
+            .collect::<BTreeSet<_>>();
+        let all_genres = files
+            .iter()
+            .flat_map(|f| f.genres())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+
+        Self {
+            files,
+            all_years,
+            all_genres,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct File {
     name: String,
@@ -76,7 +96,8 @@ struct ComicInfo {
 
 impl File {
     fn from_path(path: PathBuf, dir: &Path) -> Result<Self, anyhow::Error> {
-        let file = fs::File::open(path.as_path())?;
+        let relative_path = path.strip_prefix(dir)?.to_str().unwrap().into();
+        let file = fs::File::open(&path)?;
         let metadata = file.metadata()?;
 
         let mut zip = ZipArchive::new(file)?;
@@ -92,7 +113,7 @@ impl File {
 
         Ok(Self {
             name,
-            relative_path: path.strip_prefix(dir).unwrap().to_str().unwrap().into(),
+            relative_path,
             path,
             info,
             pages,
@@ -101,10 +122,10 @@ impl File {
     }
 
     fn genres(&self) -> &[String] {
-        if self.info.is_none() {
-            return <&[String]>::default();
+        match &self.info {
+            Some(info) => &info.genre,
+            None => <&[String]>::default(),
         }
-        &self.info.as_ref().unwrap().genre
     }
 
     fn year(&self) -> &str {
@@ -166,34 +187,19 @@ async fn main() {
         None => env::current_dir().unwrap(),
         Some(path) => path.into(),
     };
-    let entries = find_files(dir.as_path()).unwrap();
+    let entries = find_files(&dir).unwrap();
     let files = entries
         .into_iter()
-        .map(|e| File::from_path(e, dir.as_path()))
+        .map(|e| File::from_path(e, &dir))
         .collect::<Result<Vec<_>, anyhow::Error>>()
         .unwrap();
 
-    // TODO: this over-allocates strings
-    let all_years = files
-        .iter()
-        .map(|f| f.year().to_string())
-        .collect::<BTreeSet<_>>();
-    let all_genres = files
-        .iter()
-        .flat_map(|f| f.genres())
-        .cloned()
-        .collect::<BTreeSet<_>>();
-
-    let shared_state: SharedState = Arc::new(RwLock::new(AppState {
-        files,
-        all_years,
-        all_genres,
-    }));
+    let shared_state: SharedState = Arc::new(RwLock::new(AppState::from_files(files)));
 
     let app = Router::new()
         .route("/", get(show_index))
         .route("/view/*path", get(show_cbz))
-        .with_state(Arc::clone(&shared_state));
+        .with_state(shared_state);
 
     let sock_addr = SocketAddr::from((IpAddr::from_str(args.listen.as_str()).unwrap(), args.port));
     println!("listening on http://{}", sock_addr);
@@ -316,8 +322,8 @@ impl FromStr for FileSort {
             Some(s) => (Direction::Descending, s),
             None => (Direction::Ascending, s),
         };
-        let field = s.parse::<FileField>()?;
-        return Ok(FileSort { direction, field });
+        let field: FileField = s.parse()?;
+        Ok(FileSort { direction, field })
     }
 }
 
@@ -355,13 +361,13 @@ impl FromStr for FileField {
 async fn show_index(
     State(state): State<SharedState>,
     Query(query): Query<IndexQuery>,
-) -> Html<String> {
+) -> Result<Html<String>, InternalError> {
     let state = state.read().unwrap();
     let mut files = state
         .files
         .iter()
         .filter(|f| match &query.genre {
-            Some(genre) => f.info.as_ref().is_some_and(|i| i.genre.contains(&genre)),
+            Some(genre) => f.info.as_ref().is_some_and(|i| i.genre.contains(genre)),
             _ => true,
         })
         .filter(|f| match &query.year {
@@ -391,7 +397,7 @@ async fn show_index(
         all_years: &state.all_years,
         all_genres: &state.all_genres,
     };
-    Html(ctx.render_once().unwrap())
+    Ok(Html(ctx.render_once()?))
 }
 
 #[derive(Deserialize)]
@@ -400,14 +406,14 @@ struct CbzQuery {
 }
 
 fn should_expose(filename: &str) -> bool {
-    return filename.ends_with(".jpg");
+    filename.ends_with(".jpg")
 }
 
 async fn show_cbz(
     State(state): State<SharedState>,
     axum::extract::Path(path): axum::extract::Path<String>,
-    query: axum::extract::Query<CbzQuery>,
-) -> Response {
+    Query(query): Query<CbzQuery>,
+) -> Result<Response, InternalError> {
     let state = state.read().unwrap();
 
     let file = state
@@ -415,11 +421,11 @@ async fn show_cbz(
         .iter()
         .find(|&f| path.starts_with(&f.relative_path));
     if file.is_none() {
-        return StatusCode::NOT_FOUND.into_response();
+        return Ok(StatusCode::NOT_FOUND.into_response());
     }
     let file = file.unwrap();
 
-    let mut zip = ZipArchive::new(fs::File::open(file.path.as_path()).unwrap()).unwrap();
+    let mut zip = ZipArchive::new(fs::File::open(&file.path)?)?;
 
     let mut pages: Vec<&str> = zip.file_names().filter(|f| should_expose(f)).collect();
     pages.sort();
@@ -428,32 +434,32 @@ async fn show_cbz(
     let page_index = if subpath.is_some_and(|s| s != "") {
         let subpath = subpath.unwrap();
         if !(subpath.starts_with("/") && should_expose(subpath)) {
-            return StatusCode::NOT_FOUND.into_response();
+            return Ok(StatusCode::NOT_FOUND.into_response());
         }
 
         let subpath = subpath.strip_prefix("/").unwrap();
         let page_index = pages.iter().position(|p| p == &subpath);
         if !page_index.is_some() {
-            return StatusCode::NOT_FOUND.into_response();
+            return Ok(StatusCode::NOT_FOUND.into_response());
         }
         if query.raw.is_some() {
-            let mut page = zip.by_name(subpath).unwrap();
+            let mut page = zip.by_name(subpath)?;
 
             let mut data = vec![];
-            let _length = page.read_to_end(&mut data).unwrap();
+            page.read_to_end(&mut data)?;
 
             // TODO: (header::DATE, page.last_modified())
-            return ([(header::CONTENT_TYPE, "image/jpeg")], data).into_response();
+            return Ok(([(header::CONTENT_TYPE, "image/jpeg")], data).into_response());
         }
         page_index.unwrap()
     } else {
         0
     };
 
-    let previous = if page_index == 0 {
-        None
-    } else {
+    let previous = if page_index > 0 {
         pages.get(page_index - 1)
+    } else {
+        None
     };
     let current = pages[page_index];
     let next = pages.get(page_index + 1);
@@ -480,9 +486,30 @@ async fn show_cbz(
             )
         }),
     };
-    Html(ctx.render_once().unwrap()).into_response()
+    Ok(Html(ctx.render_once()?).into_response())
 }
 
 fn encode_path_segment(str: &str) -> PercentEncode {
     utf8_percent_encode(str, NON_ALPHANUMERIC)
+}
+
+struct InternalError(anyhow::Error);
+
+impl IntoResponse for InternalError {
+    fn into_response(self) -> Response {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Something went wrong: {}", self.0),
+        )
+            .into_response()
+    }
+}
+
+impl<E> From<E> for InternalError
+where
+    E: Into<anyhow::Error>,
+{
+    fn from(err: E) -> Self {
+        Self(err.into())
+    }
 }

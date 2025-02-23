@@ -51,6 +51,13 @@
             text-align: center;
             margin: 1em 0;
         }
+        
+        @media screen and (max-width: 700px)  {
+            tr th:nth-child(n+4),
+            tr td:nth-child(n+4) {
+                display: none;
+            }
+        }
     </style>
 </head>
 <body>

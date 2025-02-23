@@ -393,7 +393,7 @@ async fn show_index(
         field: FileField::Name,
     });
     match sort.field {
-        FileField::Name => files.sort_by_key(|f| &f.name),
+        FileField::Name => files.sort_by_key(|f| split_name(&f.name)),
         FileField::Year => files.sort_by_key(|f| f.year()),
         FileField::Genre => files.sort_by_key(|f| f.genres()),
         FileField::Pages => files.sort_by_key(|f| f.pages),
@@ -410,6 +410,28 @@ async fn show_index(
         all_genres: &state.all_genres,
     };
     Ok(Html(ctx.render_once()?))
+}
+
+fn split_name(name: &str) -> (u32, &str) {
+    if let Some(first_nonnumber) = name.find(|ch: char| !ch.is_ascii_digit()) {
+        let (num, rest) = name.split_at(first_nonnumber);
+        if let Ok(num) = num.parse() {
+            return (num, rest);
+        }
+    }
+    (u32::MAX, name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_name() {
+        assert_eq!(split_name("123 Hello"), (123, " Hello"));
+        assert_eq!(split_name("Hello"), (u32::MAX, "Hello"));
+        assert_eq!(split_name("Hello 123"), (u32::MAX, "Hello 123"));
+    }
 }
 
 #[derive(Deserialize)]

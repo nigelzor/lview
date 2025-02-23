@@ -165,9 +165,13 @@ fn find_files(dir: &Path) -> Result<Vec<PathBuf>, io::Error> {
 }
 
 fn format_bytes(value: u64) -> String {
-    byte_unit::Byte::from_bytes(value.into())
-        .get_appropriate_unit(false)
-        .to_string()
+    let value = byte_unit::Byte::from_bytes(value.into()).get_appropriate_unit(false);
+    let digits = match value.get_value() {
+        v if v < 1. => 2,
+        v if v < 10. => 1,
+        _ => 0,
+    };
+    value.format(digits)
 }
 
 #[derive(TemplateOnce)]

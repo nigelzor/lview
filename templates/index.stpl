@@ -21,6 +21,15 @@
 
         h1 {
             text-align: center;
+
+            & a {
+                text-decoration: none;
+
+                & img {
+                    height: 1.5em;
+                    vertical-align: bottom;
+                }
+            }
         }
 
         table {
@@ -62,7 +71,7 @@
     </style>
 </head>
 <body>
-<h1><a href="/">lview</a></h1>
+<h1><a href="/"><img alt="lview" src="/assets/title.svg"/></a></h1>
 <form>
     <label>Theme:
     <select name="genre">

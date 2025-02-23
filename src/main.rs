@@ -17,6 +17,7 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::{env, fmt, fs, io};
 use tokio::net::TcpListener;
+use tower_http::services::ServeDir;
 use zip::ZipArchive;
 
 /// Serve cbz files from directory
@@ -211,6 +212,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(show_index))
         .route("/view/{*path}", get(show_cbz))
+        .nest_service("/assets", ServeDir::new("assets"))
         .with_state(shared_state);
 
     let sock_addr = SocketAddr::from((IpAddr::from_str(args.listen.as_str()).unwrap(), args.port));

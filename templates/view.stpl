@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title><%= file.name %> | lview</title>
+    <title><%= file.name() %> | lview</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" href="/assets/icon.svg" />
     <script src="/assets/swiped-events.min.js"></script>
@@ -113,7 +113,7 @@
 <body>
 <nav class="top">
     <a href="/"><h1>lview</h1></a>
-    <span>Name: <b><%= file.name %></b></span>
+    <span>Name: <b><%= file.name() %></b></span>
     <span>Year: <a href="<%= year_search_url(file.year()) %>"><%= file.year() %></a></span>
     <span>Theme:
         <% for (i, genre) in file.genres().iter().enumerate() { %>

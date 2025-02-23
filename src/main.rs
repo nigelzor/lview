@@ -68,7 +68,7 @@ impl AppState {
 
 #[derive(Debug, Serialize)]
 struct File {
-    name: String,
+    title: String,
     relative_path: String,
     path: PathBuf,
     info: Option<ComicInfo>,
@@ -104,23 +104,34 @@ impl File {
 
         let mut zip = ZipArchive::new(file)?;
         let pages = zip.file_names().filter(|f| should_expose(f)).count();
-        let (name, info) = match zip.by_name("ComicInfo.xml") {
+        let (title, info) = match zip.by_name("ComicInfo.xml") {
             Ok(info_xml) => {
                 let info: ComicInfo = quick_xml::de::from_reader(BufReader::new(info_xml))?;
                 // println!("{:?}", info);
-                (format!("{} {}", info.number, info.title), Some(info))
+                (info.title.clone(), Some(info))
             }
-            _ => (path.file_stem().unwrap().to_str().unwrap().into(), None),
+            _ => {
+                let filename = path.file_stem().unwrap().to_str().unwrap().into();
+                (filename, None)
+            }
         };
 
         Ok(Self {
-            name,
+            title,
             relative_path,
             path,
             info,
             pages,
             size: metadata.len(),
         })
+    }
+
+    fn name(&self) -> String {
+        format!("{} {}", self.number(), self.title)
+    }
+
+    fn number(&self) -> &str {
+        self.info.as_ref().map_or("", |i| &i.number)
     }
 
     fn genres(&self) -> &[String] {
@@ -272,7 +283,7 @@ fn render_sort_link(query: &IndexQuery, field: FileField, title: &str) -> String
             Direction::Descending => ("↓", Direction::Ascending),
         };
         format!(
-            "<a href=\"{}\">{} <span>{}</span></a>",
+            "<a href=\"{}\">{}</a><span>{}</span>",
             query
                 .clone()
                 .with_sort(Some(FileSort {
@@ -306,6 +317,7 @@ enum Direction {
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum FileField {
+    Number,
     Name,
     Year,
     Genre,
@@ -347,6 +359,7 @@ impl Display for FileField {
             f,
             "{}",
             match self {
+                FileField::Number => "number",
                 FileField::Name => "name",
                 FileField::Year => "year",
                 FileField::Genre => "genre",
@@ -362,6 +375,7 @@ impl FromStr for FileField {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "number" => Ok(FileField::Number),
             "name" => Ok(FileField::Name),
             "year" => Ok(FileField::Year),
             "genre" => Ok(FileField::Genre),
@@ -392,10 +406,11 @@ async fn show_index(
 
     let sort = query.sort.unwrap_or(FileSort {
         direction: Direction::Ascending,
-        field: FileField::Name,
+        field: FileField::Number,
     });
     match sort.field {
-        FileField::Name => files.sort_by_key(|f| split_name(&f.name)),
+        FileField::Number => files.sort_by_key(|f| split_name(&f.number())),
+        FileField::Name => files.sort_by_key(|f| f.title.to_ascii_lowercase()),
         FileField::Year => files.sort_by_key(|f| f.year()),
         FileField::Genre => files.sort_by_key(|f| f.genres()),
         FileField::Pages => files.sort_by_key(|f| f.pages),
@@ -465,6 +480,9 @@ async fn show_cbz(
 
     let mut pages: Vec<&str> = zip.file_names().filter(|f| should_expose(f)).collect();
     pages.sort();
+    if pages.is_empty() {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    }
 
     let subpath = path.strip_prefix(&file.relative_path);
     let page_index = if subpath.is_some_and(|s| s != "") {

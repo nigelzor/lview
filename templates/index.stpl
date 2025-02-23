@@ -45,16 +45,18 @@
             background-color: #eee;
         }
 
+        tbody tr td:nth-child(1),
         tbody tr td:nth-child(4) {
             text-align: center;
         }
-
-        tbody tr td:nth-child(5) {
+        tbody tr td:nth-child(5),
+        tbody tr td:nth-child(6) {
             text-align: right;
         }
 
-        th a span {
+        th span {
             font-size: smaller;
+            vertical-align: top;
         }
 
         form {
@@ -112,6 +114,7 @@
 <table>
     <thead>
     <tr>
+        <th><%- render_sort_link(&query, FileField::Number, "№") %></th>
         <th><%- render_sort_link(&query, FileField::Name, "Name") %></th>
         <th><%- render_sort_link(&query, FileField::Genre, "Theme") %></th>
         <th><%- render_sort_link(&query, FileField::Year, "Year") %></th>
@@ -122,7 +125,8 @@
     <tbody>
     <% for file in files { %>
     <tr>
-        <td><a href="view/<%= file.relative_path %>"><%= file.name %></a></td>
+        <td><a href="view/<%= file.relative_path %>"><%= file.number() %></a></td>
+        <td><a href="view/<%= file.relative_path %>"><%= file.title %></a></td>
         <td>
             <% for (i, genre) in file.genres().iter().enumerate() { %>
             <% if i > 0 { %>

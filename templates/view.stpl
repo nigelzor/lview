@@ -47,14 +47,17 @@
             }
         }
 
-        img {
+        main {
             grid-column: 1/span 5;
             grid-row: 2;
             contain: size;
 
-            object-fit: contain;
-            height: 100%;
-            width: 100%;
+            & img {
+                height: 100%;
+                width: 100%;
+                object-fit: contain;
+                vertical-align: bottom;
+            }
         }
 
         .overlay {
@@ -111,7 +114,7 @@
     </span>
     <span class="gap"></span>
 </nav>
-<img src="<%= image_url %>" />
+<main><img src="<%= image_url %>" /></main>
 <% if next_url.is_some() { %>
 <a class="overlay next" aria-label="next" href="<%= next_url.unwrap() %>"></a>
 <% } %>

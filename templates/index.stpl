@@ -62,7 +62,7 @@
     </style>
 </head>
 <body>
-<a href="/"><h1>lview</h1></a>
+<h1><a href="/">lview</a></h1>
 <form>
     <label>Theme:
     <select name="genre">

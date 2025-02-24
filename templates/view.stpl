@@ -22,6 +22,10 @@
         });
     </script>
     <style>
+        html, body {
+            overscroll-behavior: none;
+        }
+
         body {
             margin: 0;
             padding: 0;
@@ -31,30 +35,30 @@
             grid-template-columns: repeat(5, 1fr);
             grid-template-rows: auto 1fr auto;
             height: 100dvh;
-
-            /* prevent pull-to-refresh on iOS */
-            overflow: hidden;
         }
 
         nav {
             grid-column: span 5;
-        }
 
-        nav {
             display: flex;
             align-items: center;
+            padding-right: 0.2em;
+            gap: 0.2em;
 
-            & > * {
-                margin: 0 0.25rem
+            & > :first-child {
+                background-color: #e3000b;
+                height: 100%;
+                align-content: center;
+
+                & img {
+                    vertical-align: bottom;
+                }
             }
 
             & h1 {
                 margin: 0;
                 font-size: inherit;
-            }
-
-            & a {
-                font-weight: bold;
+                flex-grow: 1;
             }
         }
 
@@ -104,16 +108,12 @@
                 margin-right: 1em;
             }
         }
-
-        .gap {
-            flex-grow: 1;
-        }
     </style>
 </head>
 <body>
 <nav class="top">
-    <a href="/"><h1>lview</h1></a>
-    <span>Name: <b><%= file.name() %></b></span>
+    <a href="/"><img alt="lview" src="/assets/title.svg"/></a>
+    <h1><a href="<%= file.view_url() %>"><%= file.name() %></a></h1>
     <span>Year: <a href="<%= year_search_url(file.year()) %>"><%= file.year() %></a></span>
     <span>Theme:
         <% for (i, genre) in file.genres().iter().enumerate() { %>
@@ -123,7 +123,6 @@
         <a href="<%= genre_search_url(genre) %>"><%= genre %></a>
         <% } %>
     </span>
-    <span class="gap"></span>
 </nav>
 <main><img src="<%= image_url %>" /></main>
 <% if next_url.is_some() { %>

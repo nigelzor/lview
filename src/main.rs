@@ -144,6 +144,10 @@ impl File {
     fn year(&self) -> &str {
         self.info.as_ref().map_or("", |i| &i.year)
     }
+
+    fn view_url(&self) -> String {
+        format!("/view/{}", encode_path_segment(self.relative_path.as_str()),)
+    }
 }
 
 fn genre_search_url(genre: &str) -> String {

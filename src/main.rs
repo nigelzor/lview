@@ -50,6 +50,7 @@ impl AppState {
     fn from_files(files: Vec<File>) -> Self {
         let all_years = files
             .iter()
+            .filter(|f| !f.year().is_empty())
             .map(|f| f.year().to_string())
             .collect::<BTreeSet<_>>();
         let all_genres = files

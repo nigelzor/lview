@@ -1,8 +1,11 @@
+use anyhow::Context;
 use axum::extract::Query;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Router, extract::State, response::Html, routing::get};
+use chrono::NaiveDateTime;
 use clap::Parser;
+use httpdate::fmt_http_date;
 use percent_encoding::{NON_ALPHANUMERIC, PercentEncode, utf8_percent_encode};
 use sailfish::TemplateOnce;
 use serde::{Deserialize, Serialize};
@@ -98,7 +101,7 @@ struct ComicInfo {
 }
 
 impl File {
-    fn from_path(path: PathBuf, dir: &Path) -> Result<Self, anyhow::Error> {
+    fn from_path(path: PathBuf, dir: &Path) -> anyhow::Result<Self> {
         let relative_path = path.strip_prefix(dir)?.to_str().unwrap().into();
         let file = fs::File::open(&path)?;
         let metadata = file.metadata()?;
@@ -220,7 +223,7 @@ async fn main() {
     let files = entries
         .into_iter()
         .map(|e| File::from_path(e, &dir))
-        .collect::<Result<Vec<_>, anyhow::Error>>()
+        .collect::<anyhow::Result<Vec<_>>>()
         .unwrap();
 
     let shared_state: SharedState = Arc::new(RwLock::new(AppState::from_files(files)));
@@ -507,8 +510,18 @@ async fn show_cbz(
             let mut data = vec![];
             page.read_to_end(&mut data)?;
 
-            // TODO: (header::DATE, page.last_modified())
-            return Ok(([(header::CONTENT_TYPE, "image/jpeg")], data).into_response());
+            return Ok((
+                [
+                    (header::CONTENT_TYPE, "image/jpeg"),
+                    (header::CACHE_CONTROL, "public, max-age=31536000"),
+                    (
+                        header::LAST_MODIFIED,
+                        &http_date_from_zip(page.last_modified())?,
+                    ),
+                ],
+                data,
+            )
+                .into_response());
         }
         page_index.unwrap()
     } else {
@@ -546,6 +559,12 @@ async fn show_cbz(
         }),
     };
     Ok(Html(ctx.render_once()?).into_response())
+}
+
+fn http_date_from_zip(date: Option<zip::DateTime>) -> anyhow::Result<String> {
+    let date = date.context("missing last-modified")?;
+    let date = NaiveDateTime::try_from(date)?;
+    Ok(fmt_http_date(date.and_utc().into()))
 }
 
 fn encode_path_segment(str: &str) -> PercentEncode {

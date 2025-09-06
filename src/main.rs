@@ -18,6 +18,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fmt, fs, io};
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
@@ -78,6 +79,7 @@ struct File {
     info: Option<ComicInfo>,
     pages: usize,
     size: u64,
+    modified: SystemTime,
 }
 
 #[serde_as]
@@ -127,6 +129,7 @@ impl File {
             info,
             pages,
             size: metadata.len(),
+            modified: metadata.modified()?,
         })
     }
 
@@ -151,6 +154,13 @@ impl File {
 
     fn view_url(&self) -> String {
         format!("/view/{}", encode_path_segment(self.relative_path.as_str()),)
+    }
+
+    fn version(&self) -> String {
+        format!(
+            "{}",
+            self.modified.duration_since(UNIX_EPOCH).unwrap().as_secs()
+        )
     }
 }
 
@@ -539,9 +549,10 @@ async fn show_cbz(
     let ctx = ViewTemplate {
         file,
         image_url: format!(
-            "/view/{}/{}?raw",
+            "/view/{}/{}?raw&v={}",
             encode_path_segment(file.relative_path.as_str()),
-            encode_path_segment(current)
+            encode_path_segment(current),
+            file.version(),
         ),
         next_url: next.map(|next| {
             format!(

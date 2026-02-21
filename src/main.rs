@@ -475,7 +475,7 @@ struct CbzQuery {
 }
 
 fn should_expose(filename: &str) -> bool {
-    filename.ends_with(".jpg")
+    filename.ends_with(".jpg") || filename.ends_with(".gif")
 }
 
 async fn show_cbz(
@@ -520,9 +520,15 @@ async fn show_cbz(
             let mut data = vec![];
             page.read_to_end(&mut data)?;
 
+            let content_type = if subpath.ends_with(".gif") {
+                "image/gif"
+            } else {
+                "image/jpeg"
+            };
+
             return Ok((
                 [
-                    (header::CONTENT_TYPE, "image/jpeg"),
+                    (header::CONTENT_TYPE, content_type),
                     (header::CACHE_CONTROL, "public, max-age=31536000"),
                     (
                         header::LAST_MODIFIED,

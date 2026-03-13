@@ -7,7 +7,7 @@ use chrono::NaiveDateTime;
 use clap::Parser;
 use httpdate::fmt_http_date;
 use percent_encoding::{NON_ALPHANUMERIC, PercentEncode, utf8_percent_encode};
-use sailfish::TemplateOnce;
+use sailfish::TemplateSimple;
 use serde::{Deserialize, Serialize};
 use serde_with::formats::CommaSeparator;
 use serde_with::{DeserializeFromStr, NoneAsEmptyString, StringWithSeparator, serde_as};
@@ -204,7 +204,7 @@ fn format_bytes(value: u64) -> String {
     value.format(digits)
 }
 
-#[derive(TemplateOnce)]
+#[derive(TemplateSimple)]
 #[template(path = "index.stpl")]
 struct IndexTemplate<'a> {
     files: Vec<&'a File>,
@@ -213,7 +213,7 @@ struct IndexTemplate<'a> {
     all_genres: &'a BTreeSet<String>,
 }
 
-#[derive(TemplateOnce)]
+#[derive(TemplateSimple)]
 #[template(path = "view.stpl")]
 struct ViewTemplate<'a> {
     file: &'a File,

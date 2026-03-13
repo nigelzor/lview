@@ -6,6 +6,7 @@ use axum::{Router, extract::State, response::Html, routing::get};
 use chrono::NaiveDateTime;
 use clap::Parser;
 use httpdate::fmt_http_date;
+use pdf;
 use percent_encoding::{NON_ALPHANUMERIC, PercentEncode, utf8_percent_encode};
 use sailfish::TemplateSimple;
 use serde::{Deserialize, Serialize};
@@ -189,12 +190,15 @@ impl File {
             (title, None)
         };
 
+        let pdf_document = pdf::file::FileOptions::cached().open(&path)?;
+        let pages = pdf_document.num_pages();
+
         Ok(Self {
             title,
             relative_path,
             path,
             info,
-            pages: 0,
+            pages: pages as usize,
             size: metadata.len(),
             modified: metadata.modified()?,
         })

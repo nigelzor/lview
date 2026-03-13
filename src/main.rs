@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{Context, Result, anyhow};
 use axum::extract::Query;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -103,7 +103,15 @@ struct ComicInfo {
 }
 
 impl File {
-    fn from_path(path: PathBuf, dir: &Path) -> anyhow::Result<Self> {
+    fn from_path(path: PathBuf, dir: &Path) -> Result<Self> {
+        match path.extension().map(|e| e.to_str()).flatten() {
+            Some("cbz") => Self::from_cbz(path, dir),
+            Some("pdf") => Self::from_pdf(path, dir),
+            _ => Err(anyhow!("Unsupported file extension")),
+        }
+    }
+
+    fn from_cbz(path: PathBuf, dir: &Path) -> Result<Self> {
         let relative_path = path.strip_prefix(dir)?.to_str().unwrap().into();
         let file = fs::File::open(&path)?;
         let metadata = file.metadata()?;
@@ -128,6 +136,24 @@ impl File {
             path,
             info,
             pages,
+            size: metadata.len(),
+            modified: metadata.modified()?,
+        })
+    }
+
+    fn from_pdf(path: PathBuf, dir: &Path) -> Result<Self> {
+        let relative_path = path.strip_prefix(dir)?.to_str().unwrap().into();
+        let file = fs::File::open(&path)?;
+        let metadata = file.metadata()?;
+
+        let title = path.file_stem().unwrap().to_str().unwrap().into();
+
+        Ok(Self {
+            title,
+            relative_path,
+            path,
+            info: None,
+            pages: 0,
             size: metadata.len(),
             modified: metadata.modified()?,
         })
@@ -182,7 +208,10 @@ fn find_files(dir: &Path) -> Result<Vec<PathBuf>, io::Error> {
             let path = entry?.path();
             if path.is_dir() {
                 collect_files(&path, results)?
-            } else if path.extension().is_some_and(|ext| ext == "cbz") {
+            } else if path
+                .extension()
+                .is_some_and(|ext| ext == "cbz" || ext == "pdf")
+            {
                 results.push(path)
             }
         }
@@ -233,7 +262,7 @@ async fn main() {
     let files = entries
         .into_iter()
         .map(|e| File::from_path(e, &dir))
-        .collect::<anyhow::Result<Vec<_>>>()
+        .collect::<Result<Vec<_>>>()
         .unwrap();
 
     let shared_state: SharedState = Arc::new(RwLock::new(AppState::from_files(files)));
@@ -578,7 +607,7 @@ async fn show_cbz(
     Ok(Html(ctx.render_once()?).into_response())
 }
 
-fn http_date_from_zip(date: Option<zip::DateTime>) -> anyhow::Result<String> {
+fn http_date_from_zip(date: Option<zip::DateTime>) -> Result<String> {
     let date = date.context("missing last-modified")?;
     let date = NaiveDateTime::try_from(date)?;
     Ok(fmt_http_date(date.and_utc().into()))

@@ -10,7 +10,7 @@ anyhow = "1.0.75"
 axum = "0.8.1"
 byte-unit = "4.0.19"
 clap = { version = "4.4.8", features = ["derive"] }
-quick-xml = { version = "0.31.0", features = ["serialize"] }
+quick-xml = { version = "0.39.2", features = ["serialize"] }
 sailfish = "0.10.1"
 serde = { version = "1.0.192", features = ["derive"] }
 tokio = { version = "1.34.0", features = ["full"] }

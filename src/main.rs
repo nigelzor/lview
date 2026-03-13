@@ -22,6 +22,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fmt, fs, io};
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
+use xmp_toolkit::XmpMeta;
+use xmp_toolkit::xmp_ns;
 use zip::ZipArchive;
 
 /// Serve cbz files from directory
@@ -83,7 +85,7 @@ struct File {
 }
 
 #[serde_as]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 struct ComicInfo {
     #[serde(rename = "Title")]
     title: String,
@@ -100,6 +102,36 @@ struct ComicInfo {
     genre: Vec<String>,
     #[serde(rename = "Web")]
     web: String,
+}
+impl ComicInfo {
+    fn from_xmp(xmp: &XmpMeta) -> Result<Self> {
+        let title = xmp
+            .localized_text(xmp_ns::DC, "title", Some("en"), "x-default")
+            .context("missing dc:title")?
+            .0
+            .value;
+        let number = xmp
+            .property(xmp_ns::DC, "identifier")
+            .context("missing dc:identifier")?
+            .value;
+        let date = xmp
+            .property_array(xmp_ns::DC, "date")
+            .next()
+            .context("missing dc:date")?
+            .value;
+        let subject = xmp
+            .property_array(xmp_ns::DC, "subject")
+            .map(|s| s.value)
+            .collect();
+
+        Ok(Self {
+            title,
+            number,
+            year: date,
+            genre: subject,
+            ..Default::default()
+        })
+    }
 }
 
 impl File {
@@ -146,13 +178,22 @@ impl File {
         let file = fs::File::open(&path)?;
         let metadata = file.metadata()?;
 
-        let title = path.file_stem().unwrap().to_str().unwrap().into();
+        // check for XMP sidecar
+        let xmp_path = path.with_extension("xmp");
+        let (title, info) = if xmp_path.exists() {
+            let xmp = XmpMeta::from_file(xmp_path)?;
+            let info = ComicInfo::from_xmp(&xmp)?;
+            (info.title.clone(), Some(info))
+        } else {
+            let title = path.file_stem().unwrap().to_str().unwrap().into();
+            (title, None)
+        };
 
         Ok(Self {
             title,
             relative_path,
             path,
-            info: None,
+            info,
             pages: 0,
             size: metadata.len(),
             modified: metadata.modified()?,

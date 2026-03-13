@@ -21,3 +21,4 @@ serde_with = "3.4.0"
 tower-http = { version = "0.6.2", features = ["fs"] }
 httpdate = "1.0.3"
 chrono = "0.4.41"
+xmp_toolkit = { version = "1.12.0", features = ["chrono"] }

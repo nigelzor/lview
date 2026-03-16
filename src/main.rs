@@ -83,32 +83,20 @@ struct File {
     title: String,
     relative_path: String,
     path: PathBuf,
-    info: Option<ComicInfo>,
+    info: Option<SetInfo>,
     pages: usize,
     size: u64,
     modified: SystemTime,
 }
 
-#[serde_as]
-#[derive(Serialize, Deserialize, Debug, Default)]
-struct ComicInfo {
-    #[serde(rename = "Title")]
+#[derive(Debug, Serialize)]
+struct SetInfo {
     title: String,
-    #[serde(rename = "Series")]
-    series: String,
-    #[serde(rename = "Number")]
     number: String,
-    #[serde(rename = "Year")]
     year: String,
-    #[serde(rename = "Publisher")]
-    publisher: String,
-    #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
-    #[serde(rename = "Genre")]
-    genre: Vec<String>,
-    #[serde(rename = "Web")]
-    web: String,
+    themes: Vec<String>
 }
-impl ComicInfo {
+impl SetInfo {
     fn from_xmp(xmp: &XmpMeta) -> Result<Self> {
         let title = xmp
             .localized_text(xmp_ns::DC, "title", Some("en"), "x-default")
@@ -133,10 +121,40 @@ impl ComicInfo {
             title,
             number,
             year: date,
-            genre: subject,
-            ..Default::default()
+            themes: subject,
         })
     }
+}
+
+impl From<ComicInfo> for SetInfo {
+    fn from(value: ComicInfo) -> Self {
+        Self {
+            title: value.title,
+            number: value.number,
+            year: value.year,
+            themes: value.genre,
+        }
+    }
+}
+
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug, Default)]
+struct ComicInfo {
+    #[serde(rename = "Title")]
+    title: String,
+    #[serde(rename = "Series")]
+    series: String,
+    #[serde(rename = "Number")]
+    number: String,
+    #[serde(rename = "Year")]
+    year: String,
+    #[serde(rename = "Publisher")]
+    publisher: String,
+    #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
+    #[serde(rename = "Genre")]
+    genre: Vec<String>,
+    #[serde(rename = "Web")]
+    web: String,
 }
 
 impl File {
@@ -159,7 +177,7 @@ impl File {
             Ok(info_xml) => {
                 let info: ComicInfo = quick_xml::de::from_reader(BufReader::new(info_xml))?;
                 // println!("{:?}", info);
-                (info.title.clone(), Some(info))
+                (info.title.clone(), Some(info.into()))
             }
             _ => {
                 let filename = path.file_stem().unwrap().to_str().unwrap().into();
@@ -187,7 +205,7 @@ impl File {
         let xmp_path = path.with_extension("xmp");
         let (title, info) = if xmp_path.exists() {
             let xmp = XmpMeta::from_file(xmp_path)?;
-            let info = ComicInfo::from_xmp(&xmp)?;
+            let info = SetInfo::from_xmp(&xmp)?;
             (info.title.clone(), Some(info))
         } else {
             let title = path.file_stem().unwrap().to_str().unwrap().into();
@@ -222,7 +240,7 @@ impl File {
 
     fn genres(&self) -> &[String] {
         match &self.info {
-            Some(info) => &info.genre,
+            Some(info) => &info.themes,
             None => <&[String]>::default(),
         }
     }
@@ -503,7 +521,7 @@ async fn show_index(
         .files
         .iter()
         .filter(|f| match &query.genre {
-            Some(genre) => f.info.as_ref().is_some_and(|i| i.genre.contains(genre)),
+            Some(genre) => f.info.as_ref().is_some_and(|i| i.themes.contains(genre)),
             _ => true,
         })
         .filter(|f| match &query.year {
@@ -585,10 +603,8 @@ async fn show_file(
     }
     let file = file.unwrap();
     if file.is_pdf() {
-        println!("is pdf");
         show_pdf(file, path, query).await
     } else {
-        println!("is cbz");
         show_cbz(file, path, query)
     }
 }

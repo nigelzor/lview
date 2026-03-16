@@ -1,4 +1,6 @@
 use anyhow::{Context, Result, anyhow};
+use axum::body::Body;
+use axum::debug_handler;
 use axum::extract::Query;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -18,10 +20,12 @@ use std::io::{BufReader, Read};
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fmt, fs, io};
 use tokio::net::TcpListener;
+use tokio::sync::RwLock;
+use tokio_util::io::ReaderStream;
 use tower_http::services::ServeDir;
 use xmp_toolkit::XmpMeta;
 use xmp_toolkit::xmp_ns;
@@ -204,6 +208,10 @@ impl File {
         })
     }
 
+    fn is_pdf(&self) -> bool {
+        self.path.extension().is_some_and(|e| e == "pdf")
+    }
+
     fn name(&self) -> String {
         format!("{} {}", self.number(), self.title)
     }
@@ -296,6 +304,13 @@ struct ViewTemplate<'a> {
     previous_url: Option<String>,
 }
 
+#[derive(TemplateSimple)]
+#[template(path = "pdf_view.stpl")]
+struct PdfViewTemplate<'a> {
+    file: &'a File,
+    image_url: String,
+}
+
 #[tokio::main]
 async fn main() {
     let args = CliArgs::parse();
@@ -304,6 +319,7 @@ async fn main() {
         Some(path) => path.into(),
     };
     let entries = find_files(&dir).unwrap();
+    println!("found {} files", entries.len());
     let files = entries
         .into_iter()
         .map(|e| File::from_path(e, &dir))
@@ -314,7 +330,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(show_index))
-        .route("/view/{*path}", get(show_cbz))
+        .route("/view/{*path}", get(show_file))
         .nest_service("/assets", ServeDir::new("assets"))
         .with_state(shared_state);
 
@@ -482,7 +498,7 @@ async fn show_index(
     State(state): State<SharedState>,
     Query(query): Query<IndexQuery>,
 ) -> Result<Html<String>, InternalError> {
-    let state = state.read().unwrap();
+    let state = state.read().await;
     let mut files = state
         .files
         .iter()
@@ -544,7 +560,7 @@ mod tests {
 }
 
 #[derive(Deserialize)]
-struct CbzQuery {
+struct ShowFileQuery {
     raw: Option<String>,
 }
 
@@ -552,12 +568,13 @@ fn should_expose(filename: &str) -> bool {
     filename.ends_with(".jpg") || filename.ends_with(".gif")
 }
 
-async fn show_cbz(
+#[debug_handler]
+async fn show_file(
     State(state): State<SharedState>,
     axum::extract::Path(path): axum::extract::Path<String>,
-    Query(query): Query<CbzQuery>,
+    Query(query): Query<ShowFileQuery>,
 ) -> Result<Response, InternalError> {
-    let state = state.read().unwrap();
+    let state = state.read().await;
 
     let file = state
         .files
@@ -567,7 +584,16 @@ async fn show_cbz(
         return Ok(StatusCode::NOT_FOUND.into_response());
     }
     let file = file.unwrap();
+    if file.is_pdf() {
+        println!("is pdf");
+        show_pdf(file, path, query).await
+    } else {
+        println!("is cbz");
+        show_cbz(file, path, query)
+    }
+}
 
+fn show_cbz(file: &File, path: String, query: ShowFileQuery) -> Result<Response, InternalError> {
     let mut zip = ZipArchive::new(fs::File::open(&file.path)?)?;
 
     let mut pages: Vec<&str> = zip.file_names().filter(|f| should_expose(f)).collect();
@@ -648,6 +674,41 @@ async fn show_cbz(
                 encode_path_segment(previous)
             )
         }),
+    };
+    Ok(Html(ctx.render_once()?).into_response())
+}
+
+async fn show_pdf(
+    file: &File,
+    path: String,
+    query: ShowFileQuery,
+) -> Result<Response, InternalError> {
+    // can't navigate to specific pages in the PDF
+    if path != file.relative_path {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    }
+    if query.raw.is_some() {
+        let file_ = tokio::fs::File::open(&file.path).await?;
+        let stream = ReaderStream::new(file_);
+
+        return Ok((
+            [
+                (header::CONTENT_TYPE, "application/pdf"),
+                (header::CACHE_CONTROL, "public, max-age=31536000"),
+                (header::LAST_MODIFIED, &fmt_http_date(file.modified)),
+            ],
+            Body::from_stream(stream),
+        )
+            .into_response());
+    };
+
+    let ctx = PdfViewTemplate {
+        file,
+        image_url: format!(
+            "/view/{}?raw&v={}",
+            encode_path_segment(file.relative_path.as_str()),
+            file.version(),
+        ),
     };
     Ok(Html(ctx.render_once()?).into_response())
 }

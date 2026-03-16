@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title><%= file.name() %> | lview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="/assets/icon.svg" />
+    <style>
+        html, body {
+            overscroll-behavior: none;
+        }
+
+        body {
+            -webkit-text-size-adjust: 100%;
+            margin: 0;
+            padding: 0;
+            background-color: white;
+            display: grid;
+
+            grid-template-columns: repeat(5, 1fr);
+            grid-template-rows: auto 1fr auto;
+            height: 100dvh;
+        }
+
+        nav {
+            grid-column: span 5;
+
+            display: flex;
+            align-items: center;
+            padding-right: 0.2em;
+            gap: 0.2em;
+
+            & > :first-child {
+                background-color: #e3000b;
+                height: 100%;
+                align-content: center;
+
+                & img {
+                    vertical-align: bottom;
+                }
+            }
+
+            & h1 {
+                margin: 0;
+                font-size: inherit;
+                flex-grow: 1;
+            }
+        }
+
+        main {
+            grid-column: 1/span 5;
+            grid-row: 2;
+            contain: size;
+
+            & embed, & iframe {
+                height: 100%;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+<nav class="top">
+    <a href="/"><img alt="lview" src="/assets/title.svg"/></a>
+    <h1><a href="<%= file.view_url() %>"><%= file.name() %></a></h1>
+    <% if !file.year().is_empty() { %>
+    <span>Year: <a href="<%= year_search_url(file.year()) %>"><%= file.year() %></a></span>
+    <% } %>
+    <% if !file.genres().is_empty() { %>
+    <span>Theme:
+        <% for (i, genre) in file.genres().iter().enumerate() { %>
+        <% if i > 0 { %>
+        /
+        <% } %>
+        <a href="<%= genre_search_url(genre) %>"><%= genre %></a>
+        <% } %>
+    </span>
+    <% } %>
+</nav>
+<main><embed src="<%= image_url %>" /></main>
+</body>
+</html>

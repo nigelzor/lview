@@ -94,7 +94,7 @@ struct SetInfo {
     title: String,
     number: String,
     year: String,
-    themes: Vec<String>
+    themes: Vec<String>,
 }
 impl SetInfo {
     fn from_xmp(xmp: &XmpMeta) -> Result<Self> {
@@ -330,19 +330,18 @@ struct PdfViewTemplate<'a> {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     let args = CliArgs::parse();
     let dir = match args.dir {
-        None => env::current_dir().unwrap(),
+        None => env::current_dir()?,
         Some(path) => path.into(),
     };
-    let entries = find_files(&dir).unwrap();
+    let entries = find_files(&dir)?;
     println!("found {} files", entries.len());
     let files = entries
         .into_iter()
         .map(|e| File::from_path(e, &dir))
-        .collect::<Result<Vec<_>>>()
-        .unwrap();
+        .collect::<Result<Vec<_>>>()?;
 
     let shared_state: SharedState = Arc::new(RwLock::new(AppState::from_files(files)));
 
@@ -352,12 +351,11 @@ async fn main() {
         .nest_service("/assets", ServeDir::new("assets"))
         .with_state(shared_state);
 
-    let sock_addr = SocketAddr::from((IpAddr::from_str(args.listen.as_str()).unwrap(), args.port));
+    let sock_addr = SocketAddr::from((IpAddr::from_str(args.listen.as_str())?, args.port));
     println!("listening on http://{}", sock_addr);
-    let listener = TcpListener::bind(sock_addr).await.unwrap();
-    axum::serve(listener, app.into_make_service())
-        .await
-        .unwrap()
+    let listener = TcpListener::bind(sock_addr).await?;
+    axum::serve(listener, app.into_make_service()).await?;
+    Ok(())
 }
 
 #[serde_as]

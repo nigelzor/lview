@@ -719,7 +719,7 @@ fn http_date_from_zip(date: Option<zip::DateTime>) -> Result<String> {
     Ok(fmt_http_date(date.and_utc().into()))
 }
 
-fn encode_path_segment(str: &str) -> PercentEncode {
+fn encode_path_segment<'a>(str: &'a str) -> PercentEncode<'a> {
     utf8_percent_encode(str, NON_ALPHANUMERIC)
 }
 

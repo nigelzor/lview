@@ -1,3 +1,5 @@
+mod rebrickable;
+
 use anyhow::{Context, Result, anyhow};
 use axum::body::Body;
 use axum::debug_handler;

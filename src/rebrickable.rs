@@ -1,25 +1,31 @@
 use anyhow::{Context, Result};
 use flate2::read::MultiGzDecoder;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
-use std::sync::{LazyLock, OnceLock};
+use std::sync::LazyLock;
 
 pub struct Theme {
     id: u32,
     pub name: String,
     parent: Option<u32>,
-    full_name: OnceLock<String>,
 }
 impl Theme {
-    pub fn full_name(&self) -> &String {
-        self.full_name.get_or_init(|| {
-            let mut name = self.name.to_owned();
-            if let Some(parent_id) = self.parent {
-                let parent = THEMES.get(&parent_id).context("missing parent").unwrap();
-                name = format!("{} / {}", parent.full_name(), name);
-            }
-            name
-        })
+    pub fn parent(&self) -> Option<&Theme> {
+        if let Some(parent) = self.parent {
+            THEMES.get(&parent)
+        } else {
+            None
+        }
+    }
+
+    pub fn with_parents(&self) -> Vec<&Theme> {
+        let mut res = vec![];
+        let mut current = Some(self);
+        while current.is_some() {
+            res.insert(0, current.unwrap());
+            current = current.unwrap().parent();
+        }
+        res
     }
 }
 
@@ -34,19 +40,13 @@ fn load_themes() -> Result<BTreeMap<u32, Theme>> {
         let id: u32 = record[0].parse()?;
         let name = record[1].to_owned();
         let parent: Option<u32> = record[2].parse().ok();
-        themes.insert(id, Theme {
-            id,
-            name,
-            parent,
-            full_name: OnceLock::new(),
-        });
+        themes.insert(id, Theme { id, name, parent });
     }
     Ok(themes)
 }
 
-static THEMES: LazyLock<BTreeMap<u32, Theme>> = LazyLock::new(|| {
-    load_themes().expect("failed to load themes")
-});
+static THEMES: LazyLock<BTreeMap<u32, Theme>> =
+    LazyLock::new(|| load_themes().expect("failed to load themes"));
 
 pub struct SetInfo {
     pub set_num: String,
@@ -62,28 +62,31 @@ impl SetInfo {
     }
 }
 
-fn load_sets() -> Result<Vec<SetInfo>> {
+fn load_sets() -> Result<HashMap<String, SetInfo>> {
     let file = File::open("sets.csv.gz")?;
     let reader = MultiGzDecoder::new(file);
     let mut csv = csv::Reader::from_reader(reader);
-    let mut sets = Vec::new();
+    let mut sets = HashMap::new();
     for row in csv.records() {
         let record = row?;
-        sets.push(SetInfo {
-            set_num: record[0].to_owned(),
-            name: record[1].to_owned(),
-            year: record[2].to_owned(),
-            theme_id: record[3].parse()?,
-            num_parts: record[4].parse()?,
-            img_url: record[5].to_owned(),
-        })
+        let set_num = record[0].to_owned();
+        sets.insert(
+            set_num.clone(),
+            SetInfo {
+                set_num,
+                name: record[1].to_owned(),
+                year: record[2].to_owned(),
+                theme_id: record[3].parse()?,
+                num_parts: record[4].parse()?,
+                img_url: record[5].to_owned(),
+            },
+        );
     }
     Ok(sets)
 }
 
-static SETS: LazyLock<Vec<SetInfo>> = LazyLock::new(|| {
-    load_sets().expect("failed to load sets")
-});
+pub static SETS: LazyLock<HashMap<String, SetInfo>> =
+    LazyLock::new(|| load_sets().expect("failed to load sets"));
 
 #[cfg(test)]
 mod tests {
@@ -91,7 +94,7 @@ mod tests {
 
     #[test]
     fn test_load_themes() {
-        assert_eq!(THEMES.values().any(|theme| theme.full_name() == "City / Police"), true);
+        assert_eq!(THEMES.len(), 489);
     }
 
     #[test]

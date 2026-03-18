@@ -12,6 +12,7 @@ use clap::Parser;
 use httpdate::fmt_http_date;
 use pdf;
 use percent_encoding::{NON_ALPHANUMERIC, PercentEncode, utf8_percent_encode};
+use regex::Regex;
 use sailfish::TemplateSimple;
 use serde::{Deserialize, Serialize};
 use serde_with::formats::CommaSeparator;
@@ -22,7 +23,7 @@ use std::io::{BufReader, Read};
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fmt, fs, io};
 use tokio::net::TcpListener;
@@ -139,6 +140,22 @@ impl From<ComicInfo> for SetInfo {
     }
 }
 
+impl From<&rebrickable::SetInfo> for SetInfo {
+    fn from(value: &rebrickable::SetInfo) -> Self {
+        Self {
+            title: value.name.to_owned(),
+            number: value.set_num.to_owned(),
+            year: value.year.to_owned(),
+            themes: value
+                .theme()
+                .with_parents()
+                .iter()
+                .map(|t| t.name.to_owned())
+                .collect(),
+        }
+    }
+}
+
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug, Default)]
 struct ComicInfo {
@@ -157,6 +174,37 @@ struct ComicInfo {
     genre: Vec<String>,
     #[serde(rename = "Web")]
     web: String,
+}
+
+fn info_from_path(path: &PathBuf) -> (String, Option<SetInfo>) {
+    let filename = path.file_stem().unwrap().to_str().unwrap();
+    info_from_filename(filename)
+}
+
+fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
+    // "123-1.pdf"
+    if let Some(info) = rebrickable::SETS.get(filename) {
+        return (info.name.to_owned(), Some(info.into()));
+    }
+
+    // "123.pdf"
+    if filename.chars().all(|c| c.is_ascii_digit()) {
+        let filename = filename.to_owned() + "-1";
+        if let Some(info) = rebrickable::SETS.get(&filename) {
+            return (info.name.to_owned(), Some(info.into()));
+        }
+    }
+
+    // "123 (1).pdf"
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(" \\(\\d\\)$").unwrap());
+    if let Some(info) = re.find(&filename) {
+        let filename = filename[0..info.start()].to_owned() + "-1";
+        if let Some(info) = rebrickable::SETS.get(&filename) {
+            return (info.name.to_owned(), Some(info.into()));
+        }
+    }
+    (filename.into(), None)
 }
 
 impl File {
@@ -181,10 +229,7 @@ impl File {
                 // println!("{:?}", info);
                 (info.title.clone(), Some(info.into()))
             }
-            _ => {
-                let filename = path.file_stem().unwrap().to_str().unwrap().into();
-                (filename, None)
-            }
+            _ => info_from_path(&path),
         };
 
         Ok(Self {
@@ -210,8 +255,7 @@ impl File {
             let info = SetInfo::from_xmp(&xmp)?;
             (info.title.clone(), Some(info))
         } else {
-            let title = path.file_stem().unwrap().to_str().unwrap().into();
-            (title, None)
+            info_from_path(&path)
         };
 
         let pdf_document = pdf::file::FileOptions::cached().open(&path)?;
@@ -568,6 +612,13 @@ fn split_name(name: &str) -> (u32, &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_info_from_filename() {
+        assert_eq!(info_from_filename("8891-1").0, "Idea Book 8891");
+        assert_eq!(info_from_filename("8891").0, "Idea Book 8891");
+        assert_eq!(info_from_filename("8891 (1)").0, "Idea Book 8891");
+    }
 
     #[test]
     fn test_split_name() {

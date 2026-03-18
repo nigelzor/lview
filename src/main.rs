@@ -182,29 +182,43 @@ fn info_from_path(path: &PathBuf) -> (String, Option<SetInfo>) {
 }
 
 fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
-    // "123-1.pdf"
-    if let Some(info) = rebrickable::SETS.get(filename) {
-        return (info.name.to_owned(), Some(info.into()));
-    }
-
-    // "123.pdf"
-    if filename.chars().all(|c| c.is_ascii_digit()) {
-        let filename = filename.to_owned() + "-1";
-        if let Some(info) = rebrickable::SETS.get(&filename) {
-            return (info.name.to_owned(), Some(info.into()));
-        }
-    }
+    let mut filename = filename;
 
     // "123 (1).pdf"
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(" \\(\\d\\)$").unwrap());
     if let Some(info) = re.find(&filename) {
-        let filename = filename[0..info.start()].to_owned() + "-1";
-        if let Some(info) = rebrickable::SETS.get(&filename) {
+        filename = &filename[0..info.start()];
+    }
+
+    // "123-1.pdf"
+    if let Some(info) = rebrickable::SETS.get(filename) {
+        return (info.name.to_owned(), Some(info.into()));
+    }
+
+    // "123" -> 123-1, but only if there's no 123-2
+    if filename.chars().all(|c| c.is_ascii_digit()) {
+        let prefix = filename.to_string() + "-";
+        if let Some(info) = only(
+            rebrickable::SETS
+                .iter()
+                .filter(|(number, _)| number.starts_with(&prefix))
+                .map(|(_, info)| info),
+        ) {
             return (info.name.to_owned(), Some(info.into()));
         }
     }
+
     (filename.into(), None)
+}
+
+/// Return the only element in an iterable, else None
+fn only<I: IntoIterator>(iterable: I) -> Option<I::Item> {
+    let mut iter = iterable.into_iter();
+    match (iter.next(), iter.next()) {
+        (Some(first), None) => Some(first),
+        _ => None,
+    }
 }
 
 impl File {

@@ -197,30 +197,33 @@ fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
     // multi-book instructions use " (1)"; robertlee uses " [paged]"
     static SUFFIX_RE: OnceLock<Regex> = OnceLock::new();
     let re = SUFFIX_RE.get_or_init(|| Regex::new(r"( \(\d+\)| \[.*?])+$").unwrap());
-    let suffix = if let Some(info) = re.find(&filename) {
-        info.as_str()
+    let (filename, suffix) = if let Some(info) = re.find(&filename) {
+        (filename[0..info.start()].to_owned(), info.as_str())
     } else {
-        ""
+        (filename, "")
     };
 
     // if it's an exact match, we're done
     // this is also needed to handle non-numeric ids like b55dk-01
-    if let Some(set) = set_from_id(&filename) {
+    if let Some(set) = set_from_id(&filename, None) {
         return (set.name.to_owned() + suffix, Some(set.into()));
     }
 
     static PREFIX_RE: OnceLock<Regex> = OnceLock::new();
     let re = PREFIX_RE.get_or_init(|| Regex::new(r"^\d+(?:-\d+)?\b").unwrap());
     if let Some(info) = re.find(&filename) {
-        if let Some(set) = set_from_id(info.as_str()) {
+        let hint = filename[info.end()..].trim();
+        // TODO: where does 5 come from?
+        let hint = if hint.len() > 5 { Some(hint) } else { None };
+        if let Some(set) = set_from_id(info.as_str(), hint) {
             return (set.name.to_owned() + suffix, Some(set.into()));
         }
     }
 
-    (filename, None)
+    (filename + suffix, None)
 }
 
-fn set_from_id(id: &str) -> Option<&rebrickable::SetInfo> {
+fn set_from_id<'a>(id: &'_ str, hint: Option<&'_ str>) -> Option<&'a rebrickable::SetInfo> {
     // exact match
     if let Some(info) = rebrickable::SETS.get(id) {
         return Some(info);
@@ -229,13 +232,25 @@ fn set_from_id(id: &str) -> Option<&rebrickable::SetInfo> {
     // "123" -> 123-1, but only if there's no 123-2
     if id.chars().all(|c| c.is_ascii_digit()) {
         let prefix = id.to_string() + "-";
-        if let Some(info) = only(
-            rebrickable::SETS
-                .iter()
-                .filter(|(number, _)| number.starts_with(&prefix))
-                .map(|(_, info)| info),
-        ) {
-            return Some(info);
+        let options = rebrickable::SETS
+            .iter()
+            .filter(|(number, _)| number.starts_with(&prefix))
+            .map(|(_, info)| info)
+            .collect::<Vec<_>>();
+        if options.len() < 2 {
+            return options.into_iter().next();
+        }
+
+        // if we have more text from the filename, try to use that too
+        if let Some(hint) = hint {
+            let options = options
+                .into_iter()
+                // TODO: case folding, fuzzy match
+                .filter(|info| info.name == hint)
+                .collect::<Vec<_>>();
+            if options.len() < 2 {
+                return options.into_iter().next();
+            }
         }
     }
     None

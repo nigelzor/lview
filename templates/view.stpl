@@ -112,23 +112,7 @@
     </style>
 </head>
 <body>
-<nav class="top">
-    <a href="/"><img alt="lview" src="/assets/title.svg"/></a>
-    <h1><a href="<%= file.view_url() %>"><%= file.name() %></a></h1>
-    <% if !file.year().is_empty() { %>
-    <span>Year: <a href="<%= year_search_url(file.year()) %>"><%= file.year() %></a></span>
-    <% } %>
-    <% if !file.genres().is_empty() { %>
-    <span>Theme:
-        <% for (i, genre) in file.genres().iter().enumerate() { %>
-        <% if i > 0 { %>
-        /
-        <% } %>
-        <a href="<%= genre_search_url(genre) %>"><%= genre %></a>
-        <% } %>
-    </span>
-    <% } %>
-</nav>
+<% include!("view_nav.stpl"); %>
 <main><img src="<%= image_url %>" /></main>
 <% if next_url.is_some() { %>
 <a class="overlay next" aria-label="next" href="<%= next_url.unwrap() %>"></a>

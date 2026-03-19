@@ -17,7 +17,7 @@ use sailfish::TemplateSimple;
 use serde::{Deserialize, Serialize};
 use serde_with::formats::CommaSeparator;
 use serde_with::{DeserializeFromStr, NoneAsEmptyString, StringWithSeparator, serde_as};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 use std::io::{BufReader, Read};
 use std::net::{IpAddr, SocketAddr};
@@ -55,9 +55,27 @@ type SharedState = Arc<RwLock<AppState>>;
 
 #[derive(Debug)]
 struct AppState {
+    sets: Vec<SetAggregate>,
     files: Vec<File>,
     all_years: BTreeSet<String>,
     all_genres: BTreeSet<String>,
+}
+
+#[derive(Debug)]
+struct SetAggregate {
+    info: SetInfo,
+    files: Vec<String>,
+}
+
+impl SetAggregate {
+    fn view_url(&self) -> String {
+        if self.files.len() == 1 {
+            let relative_path = &self.files[0];
+            format!("/view/{}", encode_path_segment(relative_path),)
+        } else {
+            self.info.view_url()
+        }
+    }
 }
 
 impl AppState {
@@ -79,17 +97,47 @@ impl AppState {
                 .then(a.title.cmp(&b.title))
         });
 
+        let mut sets = HashMap::new();
+        for file in &files {
+            if let Some(info) = file.info.as_ref() {
+                sets.entry(info.number.clone())
+                    .or_insert_with(|| SetAggregate {
+                        info: info.clone(),
+                        files: vec![],
+                    })
+                    .files
+                    .push(file.relative_path.to_owned())
+            }
+        }
+        let mut sets = sets.into_values().collect::<Vec<_>>();
+        sets.sort_by(|a, b| split_name(&a.info.number).cmp(&split_name(&b.info.number)));
+
         Self {
+            sets,
             files,
             all_years,
             all_genres,
         }
     }
+
+    fn get_set_by_number(&self, number: &str) -> Option<&SetInfo> {
+        self.sets
+            .iter()
+            .find(|s| s.info.number == number)
+            .map(|s| &s.info)
+    }
+
+    fn get_files_for_set(&self, set: &SetInfo) -> Vec<&File> {
+        self.files
+            .iter()
+            .filter(|f| f.info.as_ref().is_some_and(|i| i.number == set.number))
+            .collect::<Vec<_>>()
+    }
 }
 
 #[derive(Debug, Serialize)]
 struct File {
-    title: String,
+    title: String, // filename, or better if we can look up the right metadata
     relative_path: String,
     path: PathBuf,
     info: Option<SetInfo>,
@@ -98,21 +146,28 @@ struct File {
     modified: SystemTime,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 struct SetInfo {
     title: String,
-    number: Option<String>,
+    number: String,
     year: String,
     themes: Vec<String>,
 }
 impl SetInfo {
+    fn name(&self) -> String {
+        format!("{} {}", self.number, self.title)
+    }
+
     fn from_xmp(xmp: &XmpMeta) -> Result<Self> {
         let title = xmp
             .localized_text(xmp_ns::DC, "title", Some("en"), "x-default")
             .context("missing dc:title")?
             .0
             .value;
-        let number = xmp.property(xmp_ns::DC, "identifier").map(|p| p.value);
+        let number = xmp
+            .property(xmp_ns::DC, "identifier")
+            .context("missing dc:identifier")?
+            .value;
         let date = xmp
             .property_array(xmp_ns::DC, "date")
             .next()
@@ -130,13 +185,17 @@ impl SetInfo {
             themes: subject,
         })
     }
+
+    fn view_url(&self) -> String {
+        format!("/sets/{}", encode_path_segment(self.number.as_str()),)
+    }
 }
 
 impl From<ComicInfo> for SetInfo {
     fn from(value: ComicInfo) -> Self {
         Self {
             title: value.title,
-            number: Some(value.number),
+            number: value.number,
             year: value.year,
             themes: value.genre,
         }
@@ -256,15 +315,6 @@ fn set_from_id<'a>(id: &'_ str, hint: Option<&'_ str>) -> Option<&'a rebrickable
     None
 }
 
-/// Return the only element in an iterable, else None
-fn only<I: IntoIterator>(iterable: I) -> Option<I::Item> {
-    let mut iter = iterable.into_iter();
-    match (iter.next(), iter.next()) {
-        (Some(first), None) => Some(first),
-        _ => None,
-    }
-}
-
 impl File {
     fn from_path(path: PathBuf, dir: &Path) -> Result<Self> {
         match path.extension().map(|e| e.to_str()).flatten() {
@@ -338,13 +388,24 @@ impl File {
         format!("{} {}", self.number(), self.title)
     }
 
-    fn number(&self) -> &str {
-        if let Some(info) = &self.info {
-            if let Some(number) = info.number.as_ref() {
-                return number;
-            }
+    fn source(&self) -> String {
+        if self
+            .relative_path
+            .starts_with("images.brickset.com/library/ideasbooks/")
+        {
+            return "brickset".to_owned();
         }
-        ""
+        static BRICKSAFE_USER_RE: OnceLock<Regex> = OnceLock::new();
+        let re =
+            BRICKSAFE_USER_RE.get_or_init(|| Regex::new(r"^bricksafe.com/files/(.+?)/").unwrap());
+        if let Some(info) = re.captures(&self.relative_path) {
+            return format!("bricksafe/~{}", info.get(1).unwrap().as_str());
+        }
+        "".to_owned()
+    }
+
+    fn number(&self) -> &str {
+        self.info.as_ref().map_or("", |i| &i.number)
     }
 
     fn genres(&self) -> &[String] {
@@ -416,10 +477,18 @@ fn format_bytes(value: u64) -> String {
 #[derive(TemplateSimple)]
 #[template(path = "index.stpl")]
 struct IndexTemplate<'a> {
-    files: Vec<&'a File>,
+    sets: Vec<&'a SetAggregate>,
+    unmatched_files: Vec<&'a File>,
     query: IndexQuery,
     all_years: &'a BTreeSet<String>,
     all_genres: &'a BTreeSet<String>,
+}
+
+#[derive(TemplateSimple)]
+#[template(path = "set.stpl")]
+struct SetTemplate<'a> {
+    set: &'a SetInfo,
+    files: Vec<&'a File>,
 }
 
 #[derive(TemplateSimple)]
@@ -432,7 +501,7 @@ struct ViewTemplate<'a> {
 }
 
 #[derive(TemplateSimple)]
-#[template(path = "pdf_view.stpl")]
+#[template(path = "view_pdf.stpl")]
 struct PdfViewTemplate<'a> {
     file: &'a File,
     image_url: String,
@@ -462,6 +531,8 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/", get(show_index))
+        .route("/sets/", get(show_index))
+        .route("/sets/{id}", get(show_set))
         .route("/view/{*path}", get(show_file))
         .nest_service("/assets", ServeDir::new("assets"))
         .with_state(shared_state);
@@ -514,6 +585,21 @@ impl IndexQuery {
         query.finish()
     }
 }
+
+// TODO: can render_sort_link be made generic?
+// #[serde_as]
+// #[derive(Clone, Deserialize, Default)]
+// struct SetQuery {
+//     #[serde_as(as = "NoneAsEmptyString")]
+//     #[serde(default)]
+//     sort: Option<FileSort>,
+// }
+//
+// impl SetQuery {
+//     fn with_sort(self, sort: Option<FileSort>) -> Self {
+//         Self { sort, ..self }
+//     }
+// }
 
 fn render_sort_link(query: &IndexQuery, field: FileField, title: &str) -> String {
     if query.sort.is_some_and(|s| s.field == field) {
@@ -630,17 +716,25 @@ async fn show_index(
     Query(query): Query<IndexQuery>,
 ) -> Result<Html<String>, InternalError> {
     let state = state.read().await;
-    let mut files = state
-        .files
+    let mut sets = state
+        .sets
         .iter()
         .filter(|f| match &query.genre {
-            Some(genre) => f.info.as_ref().is_some_and(|i| i.themes.contains(genre)),
+            Some(genre) => f.info.themes.contains(genre),
             _ => true,
         })
         .filter(|f| match &query.year {
-            Some(year) => f.info.as_ref().is_some_and(|i| &i.year == year),
+            Some(year) => &f.info.year == year,
             _ => true,
         })
+        .collect::<Vec<_>>();
+
+    let unmatched_files = state
+        .files
+        .iter()
+        .filter(|f| f.info.is_none())
+        .filter(|_f| query.genre.is_none()) // bare files can't have genre
+        .filter(|_f| query.year.is_none()) // bare files can't have year
         .collect::<Vec<_>>();
 
     let sort = query.sort.unwrap_or(FileSort {
@@ -648,24 +742,39 @@ async fn show_index(
         field: FileField::Number,
     });
     match sort.field {
-        FileField::Number => files.sort_by_key(|f| split_name(&f.number())),
-        FileField::Name => files.sort_by_key(|f| f.title.to_ascii_lowercase()),
-        FileField::Year => files.sort_by_key(|f| f.year()),
-        FileField::Genre => files.sort_by_key(|f| f.genres()),
-        FileField::Pages => files.sort_by_key(|f| f.pages),
-        FileField::Size => files.sort_by_key(|f| f.size),
+        FileField::Number => sets.sort_by_key(|f| split_name(&f.info.number)),
+        FileField::Name => sets.sort_by_key(|f| f.info.title.to_ascii_lowercase()),
+        FileField::Year => sets.sort_by_key(|f| &f.info.year),
+        FileField::Genre => sets.sort_by_key(|f| &f.info.themes),
+        _ => {}
     }
     if sort.direction == Direction::Descending {
-        files.reverse()
+        sets.reverse()
     }
 
     let ctx = IndexTemplate {
-        files,
+        sets,
+        unmatched_files,
         query,
         all_years: &state.all_years,
         all_genres: &state.all_genres,
     };
     Ok(Html(ctx.render_once()?))
+}
+
+async fn show_set(
+    State(state): State<SharedState>,
+    axum::extract::Path(path): axum::extract::Path<String>,
+) -> Result<Response, InternalError> {
+    let state = state.read().await;
+    let set = match state.get_set_by_number(&path) {
+        Some(set) => set,
+        None => return Ok(StatusCode::NOT_FOUND.into_response()),
+    };
+    let files = state.get_files_for_set(&set);
+
+    let ctx = SetTemplate { set, files };
+    Ok(Html(ctx.render_once()?).into_response())
 }
 
 fn split_name(name: &str) -> (u32, &str) {

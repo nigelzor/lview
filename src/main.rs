@@ -11,7 +11,7 @@ use chrono::NaiveDateTime;
 use clap::Parser;
 use httpdate::fmt_http_date;
 use pdf;
-use percent_encoding::{NON_ALPHANUMERIC, PercentEncode, utf8_percent_encode};
+use percent_encoding::{NON_ALPHANUMERIC, PercentEncode, percent_decode_str, utf8_percent_encode};
 use regex::Regex;
 use sailfish::TemplateSimple;
 use serde::{Deserialize, Serialize};
@@ -95,7 +95,7 @@ struct File {
 #[derive(Debug, Serialize)]
 struct SetInfo {
     title: String,
-    number: String,
+    number: Option<String>,
     year: String,
     themes: Vec<String>,
 }
@@ -106,10 +106,7 @@ impl SetInfo {
             .context("missing dc:title")?
             .0
             .value;
-        let number = xmp
-            .property(xmp_ns::DC, "identifier")
-            .context("missing dc:identifier")?
-            .value;
+        let number = xmp.property(xmp_ns::DC, "identifier").map(|p| p.value);
         let date = xmp
             .property_array(xmp_ns::DC, "date")
             .next()
@@ -133,7 +130,7 @@ impl From<ComicInfo> for SetInfo {
     fn from(value: ComicInfo) -> Self {
         Self {
             title: value.title,
-            number: value.number,
+            number: Some(value.number),
             year: value.year,
             themes: value.genre,
         }
@@ -144,7 +141,7 @@ impl From<&rebrickable::SetInfo> for SetInfo {
     fn from(value: &rebrickable::SetInfo) -> Self {
         Self {
             title: value.name.to_owned(),
-            number: value.set_num.to_owned(),
+            number: value.set_num.to_owned().into(),
             year: value.year.to_owned(),
             themes: value
                 .theme()
@@ -176,40 +173,51 @@ struct ComicInfo {
     web: String,
 }
 
-fn info_from_path(path: &PathBuf) -> (String, Option<SetInfo>) {
+fn info_from_path(path: &Path) -> (String, Option<SetInfo>) {
     let filename = path.file_stem().unwrap().to_str().unwrap();
     info_from_filename(filename)
 }
 
 fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
-    let mut filename = filename;
+    let mut filename = filename.to_owned();
 
-    // "123 (1).pdf"
-    static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| Regex::new(" \\(\\d\\)$").unwrap());
-    if let Some(info) = re.find(&filename) {
-        filename = &filename[0..info.start()];
+    fn set_from_id(id: &str) -> Option<&rebrickable::SetInfo> {
+        // exact match
+        if let Some(info) = rebrickable::SETS.get(id) {
+            return Some(info);
+        }
+
+        // "123" -> 123-1, but only if there's no 123-2
+        if id.chars().all(|c| c.is_ascii_digit()) {
+            let prefix = id.to_string() + "-";
+            if let Some(info) = only(
+                rebrickable::SETS
+                    .iter()
+                    .filter(|(number, _)| number.starts_with(&prefix))
+                    .map(|(_, info)| info),
+            ) {
+                return Some(info);
+            }
+        }
+        None
     }
 
-    // "123-1.pdf"
-    if let Some(info) = rebrickable::SETS.get(filename) {
-        return (info.name.to_owned(), Some(info.into()));
-    }
-
-    // "123" -> 123-1, but only if there's no 123-2
-    if filename.chars().all(|c| c.is_ascii_digit()) {
-        let prefix = filename.to_string() + "-";
-        if let Some(info) = only(
-            rebrickable::SETS
-                .iter()
-                .filter(|(number, _)| number.starts_with(&prefix))
-                .map(|(_, info)| info),
-        ) {
-            return (info.name.to_owned(), Some(info.into()));
+    // "123%20Something.pdf"
+    if filename.contains("%20") {
+        if let Ok(decoded) = percent_decode_str(&filename).decode_utf8() {
+            filename = decoded.to_string();
         }
     }
 
-    (filename.into(), None)
+    static PREFIX_RE: OnceLock<Regex> = OnceLock::new();
+    let re = PREFIX_RE.get_or_init(|| Regex::new(r"^\d+(?:-\d+)?\b").unwrap());
+    if let Some(info) = re.find(&filename) {
+        if let Some(set) = set_from_id(info.as_str()) {
+            return (set.name.to_owned(), Some(set.into()));
+        }
+    }
+
+    (filename, None)
 }
 
 /// Return the only element in an iterable, else None
@@ -231,7 +239,7 @@ impl File {
     }
 
     fn from_cbz(path: PathBuf, dir: &Path) -> Result<Self> {
-        let relative_path = path.strip_prefix(dir)?.to_str().unwrap().into();
+        let relative_path = path.strip_prefix(dir)?;
         let file = fs::File::open(&path)?;
         let metadata = file.metadata()?;
 
@@ -243,12 +251,12 @@ impl File {
                 // println!("{:?}", info);
                 (info.title.clone(), Some(info.into()))
             }
-            _ => info_from_path(&path),
+            _ => info_from_path(relative_path),
         };
 
         Ok(Self {
             title,
-            relative_path,
+            relative_path: relative_path.to_str().context("invalid path")?.to_owned(),
             path,
             info,
             pages,
@@ -258,7 +266,7 @@ impl File {
     }
 
     fn from_pdf(path: PathBuf, dir: &Path) -> Result<Self> {
-        let relative_path = path.strip_prefix(dir)?.to_str().unwrap().into();
+        let relative_path = path.strip_prefix(dir)?;
         let file = fs::File::open(&path)?;
         let metadata = file.metadata()?;
 
@@ -269,7 +277,7 @@ impl File {
             let info = SetInfo::from_xmp(&xmp)?;
             (info.title.clone(), Some(info))
         } else {
-            info_from_path(&path)
+            info_from_path(relative_path)
         };
 
         let pdf_document = pdf::file::FileOptions::cached().open(&path)?;
@@ -277,7 +285,7 @@ impl File {
 
         Ok(Self {
             title,
-            relative_path,
+            relative_path: relative_path.to_str().context("invalid path")?.to_owned(),
             path,
             info,
             pages: pages as usize,
@@ -295,7 +303,12 @@ impl File {
     }
 
     fn number(&self) -> &str {
-        self.info.as_ref().map_or("", |i| &i.number)
+        if let Some(info) = &self.info {
+            if let Some(number) = info.number.as_ref() {
+                return number;
+            }
+        }
+        ""
     }
 
     fn genres(&self) -> &[String] {
@@ -400,8 +413,14 @@ async fn main() -> Result<()> {
     println!("found {} files", entries.len());
     let files = entries
         .into_iter()
-        .map(|e| File::from_path(e, &dir))
-        .collect::<Result<Vec<_>>>()?;
+        .flat_map(|e| match File::from_path(e, &dir) {
+            Ok(file) => Some(file),
+            Err(err) => {
+                eprintln!("Error while reading file: {}", err);
+                None
+            }
+        })
+        .collect::<Vec<_>>();
 
     let shared_state: SharedState = Arc::new(RwLock::new(AppState::from_files(files)));
 
@@ -632,6 +651,18 @@ mod tests {
         assert_eq!(info_from_filename("8891-1").0, "Idea Book 8891");
         assert_eq!(info_from_filename("8891").0, "Idea Book 8891");
         assert_eq!(info_from_filename("8891 (1)").0, "Idea Book 8891");
+    }
+
+    #[test]
+    fn test_info_from_path() {
+        assert_eq!(
+            info_from_path("6848-strategic-pursuer/6848%20Strategic%20Pursuer.pdf".as_ref()).0,
+            "Strategic Pursuer"
+        );
+        assert_eq!(
+            info_from_path("6849-satellite-patroller/6849%20Satellite%20Patroller.pdf".as_ref()).0,
+            "Satellite Patroller"
+        );
     }
 
     #[test]

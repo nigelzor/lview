@@ -61,7 +61,7 @@ struct AppState {
 }
 
 impl AppState {
-    fn from_files(files: Vec<File>) -> Self {
+    fn from_files(mut files: Vec<File>) -> Self {
         let all_years = files
             .iter()
             .filter(|f| !f.year().is_empty())
@@ -72,6 +72,12 @@ impl AppState {
             .flat_map(|f| f.genres())
             .cloned()
             .collect::<BTreeSet<_>>();
+
+        files.sort_by(|a, b| {
+            split_name(a.number())
+                .cmp(&split_name(b.number()))
+                .then(a.title.cmp(&b.title))
+        });
 
         Self {
             files,
@@ -181,27 +187,6 @@ fn info_from_path(path: &Path) -> (String, Option<SetInfo>) {
 fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
     let mut filename = filename.to_owned();
 
-    fn set_from_id(id: &str) -> Option<&rebrickable::SetInfo> {
-        // exact match
-        if let Some(info) = rebrickable::SETS.get(id) {
-            return Some(info);
-        }
-
-        // "123" -> 123-1, but only if there's no 123-2
-        if id.chars().all(|c| c.is_ascii_digit()) {
-            let prefix = id.to_string() + "-";
-            if let Some(info) = only(
-                rebrickable::SETS
-                    .iter()
-                    .filter(|(number, _)| number.starts_with(&prefix))
-                    .map(|(_, info)| info),
-            ) {
-                return Some(info);
-            }
-        }
-        None
-    }
-
     // "123%20Something.pdf"
     if filename.contains("%20") {
         if let Ok(decoded) = percent_decode_str(&filename).decode_utf8() {
@@ -209,15 +194,45 @@ fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
         }
     }
 
+    // multi-book instructions use " (1)"; robertlee uses " [paged]"
+    static SUFFIX_RE: OnceLock<Regex> = OnceLock::new();
+    let re = SUFFIX_RE.get_or_init(|| Regex::new(r"( \(\d+\)| \[.*?])+$").unwrap());
+    let suffix = if let Some(info) = re.find(&filename) {
+        info.as_str()
+    } else {
+        ""
+    };
+
     static PREFIX_RE: OnceLock<Regex> = OnceLock::new();
     let re = PREFIX_RE.get_or_init(|| Regex::new(r"^\d+(?:-\d+)?\b").unwrap());
     if let Some(info) = re.find(&filename) {
         if let Some(set) = set_from_id(info.as_str()) {
-            return (set.name.to_owned(), Some(set.into()));
+            return (set.name.to_owned() + suffix, Some(set.into()));
         }
     }
 
     (filename, None)
+}
+
+fn set_from_id(id: &str) -> Option<&rebrickable::SetInfo> {
+    // exact match
+    if let Some(info) = rebrickable::SETS.get(id) {
+        return Some(info);
+    }
+
+    // "123" -> 123-1, but only if there's no 123-2
+    if id.chars().all(|c| c.is_ascii_digit()) {
+        let prefix = id.to_string() + "-";
+        if let Some(info) = only(
+            rebrickable::SETS
+                .iter()
+                .filter(|(number, _)| number.starts_with(&prefix))
+                .map(|(_, info)| info),
+        ) {
+            return Some(info);
+        }
+    }
+    None
 }
 
 /// Return the only element in an iterable, else None
@@ -650,7 +665,7 @@ mod tests {
     fn test_info_from_filename() {
         assert_eq!(info_from_filename("8891-1").0, "Idea Book 8891");
         assert_eq!(info_from_filename("8891").0, "Idea Book 8891");
-        assert_eq!(info_from_filename("8891 (1)").0, "Idea Book 8891");
+        assert_eq!(info_from_filename("8891 (1)").0, "Idea Book 8891 (1)");
     }
 
     #[test]

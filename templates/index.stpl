@@ -46,14 +46,11 @@
             background-color: #eee;
         }
 
+        /* number, year */
         tbody tr td:nth-child(1),
         tbody tr td:nth-child(4) {
             text-align: center;
             white-space: nowrap;
-        }
-        tbody tr td:nth-child(5),
-        tbody tr td:nth-child(6) {
-            text-align: right;
         }
 
         th span {
@@ -64,13 +61,6 @@
         form {
             text-align: center;
             margin: 1em 0;
-        }
-        
-        @media screen and (max-width: 700px)  {
-            tr th:nth-child(n+4),
-            tr td:nth-child(n+4) {
-                display: none;
-            }
         }
     </style>
 </head>
@@ -120,26 +110,30 @@
         <th><%- render_sort_link(&query, FileField::Name, "Name") %></th>
         <th><%- render_sort_link(&query, FileField::Genre, "Theme") %></th>
         <th><%- render_sort_link(&query, FileField::Year, "Year") %></th>
-        <th><%- render_sort_link(&query, FileField::Pages, "Pages") %></th>
-        <th><%- render_sort_link(&query, FileField::Size, "Size") %></th>
     </tr>
     </thead>
     <tbody>
-    <% for file in files { %>
+    <% for file in sets { %>
     <tr>
-        <td><a href="<%= file.view_url() %>"><%= file.number() %></a></td>
-        <td><a href="<%= file.view_url() %>"><%= file.title %></a></td>
+        <td><a href="<%= file.view_url() %>"><%= file.info.number %></a></td>
+        <td><a href="<%= file.view_url() %>"><%= file.info.title %></a></td>
         <td>
-            <% for (i, genre) in file.genres().iter().enumerate() { %>
+            <% for (i, genre) in file.info.themes.iter().enumerate() { %>
             <% if i > 0 { %>
             /
             <% } %>
             <a href="<%= genre_search_url(genre) %>"><%= genre %></a>
             <% } %>
         </td>
-        <td><a href="<%= year_search_url(file.year()) %>"><%= file.year() %></a></td>
-        <td><%= file.pages %></td>
-        <td><%= format_bytes(file.size) %></td>
+        <td><a href="<%= year_search_url(&file.info.year) %>"><%= file.info.year %></a></td>
+    </tr>
+    <% } %>
+    <% for file in unmatched_files { %>
+    <tr>
+        <td></td>
+        <td><a href="<%= file.view_url() %>"><%= file.title %></a></td>
+        <td></td>
+        <td></td>
     </tr>
     <% } %>
     </tbody>

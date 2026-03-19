@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title><%= set.name() %> | lview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="/assets/icon.svg" />
+    <style>
+        body {
+            -webkit-text-size-adjust: 100%;
+            margin: 0;
+            padding: 0;
+            background-color: white;
+        }
+
+        nav {
+            grid-column: span 5;
+
+            display: flex;
+            align-items: center;
+            padding-right: 0.2em;
+            gap: 0.2em;
+
+            & > :first-child {
+                background-color: #e3000b;
+                height: 100%;
+                align-content: center;
+
+                & img {
+                    vertical-align: bottom;
+                }
+            }
+
+            & h1 {
+                margin: 0;
+                font-size: inherit;
+                flex-grow: 1;
+            }
+        }
+
+        table {
+            margin: 1em auto;
+            border-collapse: collapse;
+        }
+
+        td {
+            padding: 0.1rem 0.5rem;
+        }
+
+        tbody tr:hover {
+            background-color: #eee;
+        }
+
+        /* size */
+        tbody tr td:nth-child(4) {
+            text-align: right;
+        }
+
+        th span {
+            font-size: smaller;
+            vertical-align: top;
+        }
+    </style>
+</head>
+<body>
+<nav class="top">
+    <a href="/"><img alt="lview" src="/assets/title.svg"/></a>
+    <h1><a href="<%= set.view_url() %>"><%= set.name() %></a></h1>
+    <% if !set.year.is_empty() { %>
+    <span>Year: <a href="<%= year_search_url(&set.year) %>"><%= set.year %></a></span>
+    <% } %>
+    <% if !set.themes.is_empty() { %>
+    <span>Theme:
+        <% for (i, genre) in set.themes.iter().enumerate() { %>
+        <% if i > 0 { %>
+        /
+        <% } %>
+        <a href="<%= genre_search_url(genre) %>"><%= genre %></a>
+        <% } %>
+    </span>
+    <% } %>
+</nav>
+<table>
+    <thead>
+    <tr>
+        <th>Name</th>
+        <th>Source</th>
+        <th>Pages</th>
+        <th>Size</th>
+    </tr>
+    </thead>
+    <tbody>
+    <% for file in files { %>
+    <tr>
+        <td><a href="<%= file.view_url() %>"><%= file.title %></a></td>
+        <td><a href="<%= file.view_url() %>"><%= file.source() %></a></td>
+        <td><%= file.pages %></td>
+        <td><%= format_bytes(file.size) %></td>
+    </tr>
+    <% } %>
+    </tbody>
+</table>
+</body>
+</html>

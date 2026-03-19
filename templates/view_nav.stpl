@@ -1,0 +1,17 @@
+<nav class="top">
+    <a href="/"><img alt="lview" src="/assets/title.svg"/></a>
+    <h1><a href="<%= if file.info.is_some() { file.info.as_ref().unwrap().view_url() } else { file.view_url() } %>"><%= file.name() %></a></h1>
+    <% if !file.year().is_empty() { %>
+    <span>Year: <a href="<%= year_search_url(file.year()) %>"><%= file.year() %></a></span>
+    <% } %>
+    <% if !file.genres().is_empty() { %>
+    <span>Theme:
+        <% for (i, genre) in file.genres().iter().enumerate() { %>
+        <% if i > 0 { %>
+        /
+        <% } %>
+        <a href="<%= genre_search_url(genre) %>"><%= genre %></a>
+        <% } %>
+    </span>
+    <% } %>
+</nav>

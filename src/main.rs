@@ -203,6 +203,12 @@ fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
         ""
     };
 
+    // if it's an exact match, we're done
+    // this is also needed to handle non-numeric ids like b55dk-01
+    if let Some(set) = set_from_id(&filename) {
+        return (set.name.to_owned() + suffix, Some(set.into()));
+    }
+
     static PREFIX_RE: OnceLock<Regex> = OnceLock::new();
     let re = PREFIX_RE.get_or_init(|| Regex::new(r"^\d+(?:-\d+)?\b").unwrap());
     if let Some(info) = re.find(&filename) {

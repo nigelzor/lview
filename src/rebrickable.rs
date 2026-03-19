@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use flate2::read::MultiGzDecoder;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
@@ -94,11 +94,11 @@ mod tests {
 
     #[test]
     fn test_load_themes() {
-        assert_eq!(THEMES.len(), 489);
+        assert_eq!(THEMES.len(), 490);
     }
 
     #[test]
     fn test_load_sets() {
-        assert_eq!(SETS.len(), 26186);
+        assert_eq!(SETS.len(), 26350);
     }
 }

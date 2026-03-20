@@ -23,7 +23,7 @@ use std::io::{BufReader, Read};
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fmt, fs, io};
 use tokio::net::TcpListener;
@@ -254,9 +254,9 @@ fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
     }
 
     // multi-book instructions use " (1)"; robertlee uses " [paged]"
-    static SUFFIX_RE: OnceLock<Regex> = OnceLock::new();
-    let re = SUFFIX_RE.get_or_init(|| Regex::new(r"( \(\d+\)| \[.*?])+$").unwrap());
-    let (filename, suffix) = if let Some(info) = re.find(&filename) {
+    static SUFFIX_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"( \(\d+\)| \[.*?])+$").unwrap());
+    let (filename, suffix) = if let Some(info) = SUFFIX_RE.find(&filename) {
         (filename[0..info.start()].to_owned(), info.as_str())
     } else {
         (filename, "")
@@ -268,9 +268,8 @@ fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
         return (set.name.to_owned() + suffix, Some(set.into()));
     }
 
-    static PREFIX_RE: OnceLock<Regex> = OnceLock::new();
-    let re = PREFIX_RE.get_or_init(|| Regex::new(r"^\d+(?:-\d+)?\b").unwrap());
-    if let Some(info) = re.find(&filename) {
+    static PREFIX_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d+(?:-\d+)?\b").unwrap());
+    if let Some(info) = PREFIX_RE.find(&filename) {
         let hint = filename[info.end()..].trim();
         // TODO: where does 5 come from?
         let hint = if hint.len() > 5 { Some(hint) } else { None };
@@ -393,13 +392,12 @@ impl File {
             .relative_path
             .starts_with("images.brickset.com/library/ideasbooks/")
         {
-            return "brickset".to_owned();
+            return "Brickset Library".to_owned();
         }
-        static BRICKSAFE_USER_RE: OnceLock<Regex> = OnceLock::new();
-        let re =
-            BRICKSAFE_USER_RE.get_or_init(|| Regex::new(r"^bricksafe.com/files/(.+?)/").unwrap());
-        if let Some(info) = re.captures(&self.relative_path) {
-            return format!("bricksafe/~{}", info.get(1).unwrap().as_str());
+        static BRICKSAFE_USER_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^bricksafe.com/files/(.+?)/").unwrap());
+        if let Some(info) = BRICKSAFE_USER_RE.captures(&self.relative_path) {
+            return format!("Bricksafe / {}", info.get(1).unwrap().as_str());
         }
         "".to_owned()
     }

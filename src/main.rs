@@ -1,5 +1,6 @@
 mod rebrickable;
 
+use crate::rebrickable::SETS;
 use anyhow::{Context, Result, anyhow};
 use axum::body::Body;
 use axum::debug_handler;
@@ -17,7 +18,7 @@ use sailfish::TemplateSimple;
 use serde::{Deserialize, Serialize};
 use serde_with::formats::CommaSeparator;
 use serde_with::{DeserializeFromStr, NoneAsEmptyString, StringWithSeparator, serde_as};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::io::{BufReader, Read};
 use std::net::{IpAddr, SocketAddr};
@@ -202,18 +203,21 @@ impl From<ComicInfo> for SetInfo {
     }
 }
 
+fn theme_names(theme: &rebrickable::Theme) -> Vec<String> {
+    theme
+        .with_parents()
+        .iter()
+        .map(|t| t.name.to_owned())
+        .collect()
+}
+
 impl From<&rebrickable::SetInfo> for SetInfo {
     fn from(value: &rebrickable::SetInfo) -> Self {
         Self {
             title: value.name.to_owned(),
             number: value.set_num.to_owned().into(),
             year: value.year.to_owned(),
-            themes: value
-                .theme()
-                .with_parents()
-                .iter()
-                .map(|t| t.name.to_owned())
-                .collect(),
+            themes: theme_names(value.theme()),
         }
     }
 }
@@ -283,14 +287,14 @@ fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
 
 fn set_from_id<'a>(id: &'_ str, hint: Option<&'_ str>) -> Option<&'a rebrickable::SetInfo> {
     // exact match
-    if let Some(info) = rebrickable::SETS.get(id) {
+    if let Some(info) = SETS.get(id) {
         return Some(info);
     }
 
     // "123" -> 123-1, but only if there's no 123-2
     if id.chars().all(|c| c.is_ascii_digit()) {
         let prefix = id.to_string() + "-";
-        let options = rebrickable::SETS
+        let options = SETS
             .iter()
             .filter(|(number, _)| number.starts_with(&prefix))
             .map(|(_, info)| info)
@@ -480,6 +484,7 @@ struct IndexTemplate<'a> {
     query: IndexQuery,
     all_years: &'a BTreeSet<String>,
     all_genres: &'a BTreeSet<String>,
+    all_link: Option<String>,
 }
 
 #[derive(TemplateSimple)]
@@ -554,6 +559,8 @@ struct IndexQuery {
     #[serde_as(as = "NoneAsEmptyString")]
     #[serde(default)]
     sort: Option<FileSort>,
+    #[serde(default)]
+    all: bool,
 }
 
 impl IndexQuery {
@@ -569,6 +576,10 @@ impl IndexQuery {
         Self { year, ..self }
     }
 
+    fn with_all(self, all: bool) -> Self {
+        Self { all, ..self }
+    }
+
     fn to_url(&self) -> String {
         let base = "/?";
         let mut query = form_urlencoded::Serializer::for_suffix(String::from(base), base.len());
@@ -580,6 +591,9 @@ impl IndexQuery {
             .map(|y| query.append_pair("year", y.as_str()));
         self.sort
             .map(|s| query.append_pair("sort", s.to_query().as_str()));
+        if self.all {
+            query.append_pair("all", "true");
+        }
         query.finish()
     }
 }
@@ -629,6 +643,14 @@ fn render_sort_link(query: &IndexQuery, field: FileField, title: &str) -> String
                 .to_url(),
             title
         )
+    }
+}
+
+fn render_file_count(count: usize) -> &'static str {
+    match count {
+        0 => "<span title=\"no files\">⚠</span>",
+        1 => "",
+        _ => "<span title=\"multiple files\">▤</span>",
     }
 }
 
@@ -713,6 +735,14 @@ async fn show_index(
     State(state): State<SharedState>,
     Query(query): Query<IndexQuery>,
 ) -> Result<Html<String>, InternalError> {
+    let all_view_supported = query.genre.is_some() || query.year.is_some();
+    let query = if query.all && !all_view_supported {
+        // redirect instead?
+        query.with_all(false)
+    } else {
+        query
+    };
+
     let state = state.read().await;
     let mut sets = state
         .sets
@@ -726,6 +756,44 @@ async fn show_index(
             _ => true,
         })
         .collect::<Vec<_>>();
+
+    let missing = if all_view_supported {
+        let found = sets.iter().map(|s| &s.info.number).collect::<HashSet<_>>();
+        SETS.values()
+            .filter(|info| match &query.genre {
+                Some(genre) => theme_names(info.theme()).contains(genre),
+                _ => true,
+            })
+            .filter(|info| match &query.year {
+                Some(year) => &info.year == year,
+                _ => true,
+            })
+            .filter(|info| !found.contains(&info.set_num))
+            .map(|i| SetAggregate {
+                info: i.into(),
+                files: vec![],
+            })
+            .collect::<Vec<_>>()
+    } else {
+        vec![]
+    };
+    if query.all {
+        sets.extend(&missing);
+    };
+
+    let all_link = if query.all {
+        Some(format!(
+            "<a href=\"{}\">Hide sets without files</a>",
+            query.clone().with_all(false).to_url()
+        ))
+    } else if all_view_supported && !missing.is_empty() {
+        Some(format!(
+            "<a href=\"{}\">Show sets without files</a>",
+            query.clone().with_all(true).to_url()
+        ))
+    } else {
+        None
+    };
 
     let unmatched_files = state
         .files
@@ -756,6 +824,7 @@ async fn show_index(
         query,
         all_years: &state.all_years,
         all_genres: &state.all_genres,
+        all_link,
     };
     Ok(Html(ctx.render_once()?))
 }
@@ -765,9 +834,16 @@ async fn show_set(
     axum::extract::Path(path): axum::extract::Path<String>,
 ) -> Result<Response, InternalError> {
     let state = state.read().await;
-    let set = match state.get_set_by_number(&path) {
-        Some(set) => set,
-        None => return Ok(StatusCode::NOT_FOUND.into_response()),
+    let set = state.get_set_by_number(&path);
+    let empty_set = if set.is_none() {
+        SETS.get(&path).map(SetInfo::from)
+    } else {
+        None
+    };
+    let set = match (set, &empty_set) {
+        (Some(set), _) => set,
+        (_, Some(set)) => set,
+        _ => return Ok(StatusCode::NOT_FOUND.into_response()),
     };
     let files = state.get_files_for_set(&set);
 
@@ -794,16 +870,12 @@ mod tests {
         assert_eq!(info_from_filename("8891-1").0, "Idea Book 8891");
         assert_eq!(info_from_filename("8891").0, "Idea Book 8891");
         assert_eq!(info_from_filename("8891 (1)").0, "Idea Book 8891 (1)");
-    }
-
-    #[test]
-    fn test_info_from_path() {
         assert_eq!(
-            info_from_path("6848-strategic-pursuer/6848%20Strategic%20Pursuer.pdf".as_ref()).0,
+            info_from_filename("6848%20Strategic%20Pursuer.pdf").0,
             "Strategic Pursuer"
         );
         assert_eq!(
-            info_from_path("6849-satellite-patroller/6849%20Satellite%20Patroller.pdf".as_ref()).0,
+            info_from_filename("6849%20Satellite%20Patroller.pdf").0,
             "Satellite Patroller"
         );
     }

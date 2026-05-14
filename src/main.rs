@@ -145,6 +145,7 @@ struct File {
     pages: usize,
     size: u64,
     modified: SystemTime,
+    source: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -242,20 +243,32 @@ struct ComicInfo {
     web: String,
 }
 
-fn info_from_path(path: &Path) -> Result<(String, Option<SetInfo>)> {
+struct TitleAndInfo {
+    title: String,
+    source: Option<String>,
+    set_info: Option<SetInfo>,
+}
+
+fn info_from_path(path: &Path) -> Result<TitleAndInfo> {
     // check for XMP sidecar
     let xmp_path = path.with_extension("xmp");
     if xmp_path.exists() {
         let xmp = XmpMeta::from_file(xmp_path)?;
         let info = SetInfo::from_xmp(&xmp)?;
-        return Ok((info.title.clone(), Some(info)));
+        let source = xmp.property(xmp_ns::DC, "source").map(|v| v.value);
+
+        return Ok(TitleAndInfo {
+            title: info.title.clone(),
+            source,
+            set_info: Some(info),
+        });
     }
 
     let filename = path.file_stem().unwrap().to_str().unwrap();
     Ok(info_from_filename(filename))
 }
 
-fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
+fn info_from_filename(filename: &str) -> TitleAndInfo {
     let mut filename = filename.to_owned();
 
     // "123%20Something.pdf"
@@ -277,7 +290,11 @@ fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
     // if it's an exact match, we're done
     // this is also needed to handle non-numeric ids like b55dk-01
     if let Some(set) = set_from_id(&filename, None) {
-        return (set.name.to_owned() + suffix, Some(set.into()));
+        return TitleAndInfo {
+            title: set.name.to_owned() + suffix,
+            source: None,
+            set_info: Some(set.into()),
+        };
     }
 
     static PREFIX_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d+(?:-\d+)?\b").unwrap());
@@ -286,11 +303,19 @@ fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
         // TODO: where does 5 come from?
         let hint = if hint.len() > 5 { Some(hint) } else { None };
         if let Some(set) = set_from_id(info.as_str(), hint) {
-            return (set.name.to_owned() + suffix, Some(set.into()));
+            return TitleAndInfo {
+                title: set.name.to_owned() + suffix,
+                source: None,
+                set_info: Some(set.into()),
+            };
         }
     }
 
-    (filename + suffix, None)
+    TitleAndInfo {
+        title: filename + suffix,
+        source: None,
+        set_info: None,
+    }
 }
 
 fn set_from_id<'a>(id: &'_ str, hint: Option<&'_ str>) -> Option<&'a rebrickable::SetInfo> {
@@ -342,23 +367,37 @@ impl File {
 
         let mut zip = ZipArchive::new(file)?;
         let pages = zip.file_names().filter(|f| should_expose(f)).count();
-        let (title, info) = match zip.by_name("ComicInfo.xml") {
+        let title_and_info = match zip.by_name("ComicInfo.xml") {
             Ok(info_xml) => {
                 let info: ComicInfo = quick_xml::de::from_reader(BufReader::new(info_xml))?;
-                // println!("{:?}", info);
-                (info.title.clone(), Some(info.into()))
+                TitleAndInfo {
+                    title: info.title.clone(),
+                    source: None,
+                    set_info: Some(info.into()),
+                }
             }
             _ => info_from_path(&path)?,
         };
 
+        static SOURCE_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"(?m)^(?i:source):\s+(.*?)$").unwrap());
+        let source_from_zip = match str::from_utf8(zip.comment()) {
+            Ok(comment) => match SOURCE_RE.captures(comment) {
+                Some(captures) => Some(captures.get(1).unwrap().as_str().to_owned()),
+                _ => None,
+            },
+            _ => None,
+        };
+
         Ok(Self {
-            title,
+            title: title_and_info.title,
             relative_path: relative_path.to_str().context("invalid path")?.to_owned(),
             path,
-            info,
+            info: title_and_info.set_info,
             pages,
             size: metadata.len(),
             modified: metadata.modified()?,
+            source: title_and_info.source.or(source_from_zip),
         })
     }
 
@@ -367,18 +406,19 @@ impl File {
         let file = fs::File::open(&path)?;
         let metadata = file.metadata()?;
 
-        let (title, info) = info_from_path(&path)?;
+        let title_and_info = info_from_path(&path)?;
         let pdf_document = pdf::file::FileOptions::cached().open(&path)?;
         let pages = pdf_document.num_pages();
 
         Ok(Self {
-            title,
+            title: title_and_info.title,
             relative_path: relative_path.to_str().context("invalid path")?.to_owned(),
             path,
-            info,
+            info: title_and_info.set_info,
             pages: pages as usize,
             size: metadata.len(),
             modified: metadata.modified()?,
+            source: title_and_info.source,
         })
     }
 
@@ -391,16 +431,27 @@ impl File {
     }
 
     fn source(&self) -> String {
-        if self
-            .relative_path
-            .starts_with("images.brickset.com/library/ideasbooks/")
-        {
+        let source_url = self.source.as_ref().unwrap_or(&self.relative_path);
+        static BRICKSET_LIBRARY_RE: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"^(?:https?://)?(images\.)?brickset\.com/library/").unwrap()
+        });
+        if BRICKSET_LIBRARY_RE.is_match(source_url) {
             return "Brickset Library".to_owned();
         }
         static BRICKSAFE_USER_RE: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"^bricksafe.com/files/(.+?)/").unwrap());
+            LazyLock::new(|| Regex::new(r"^(?:https?://)?bricksafe\.com/files/(.+?)/").unwrap());
         if let Some(info) = BRICKSAFE_USER_RE.captures(&self.relative_path) {
             return format!("Bricksafe / {}", info.get(1).unwrap().as_str());
+        }
+        static PEERON_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^(?:https?://)?(www\.)?peeron\.com/").unwrap());
+        if PEERON_RE.is_match(source_url) {
+            return "Peeron".to_owned();
+        }
+        static LEGO_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^(?:https?://)?(www\.)?lego\.com/").unwrap());
+        if LEGO_RE.is_match(source_url) {
+            return "Lego".to_owned();
         }
         "".to_owned()
     }
@@ -866,15 +917,15 @@ mod tests {
 
     #[test]
     fn test_info_from_filename() {
-        assert_eq!(info_from_filename("8891-1").0, "Idea Book 8891");
-        assert_eq!(info_from_filename("8891").0, "Idea Book 8891");
-        assert_eq!(info_from_filename("8891 (1)").0, "Idea Book 8891 (1)");
+        assert_eq!(info_from_filename("8891-1").title, "Idea Book 8891");
+        assert_eq!(info_from_filename("8891").title, "Idea Book 8891");
+        assert_eq!(info_from_filename("8891 (1)").title, "Idea Book 8891 (1)");
         assert_eq!(
-            info_from_filename("6848%20Strategic%20Pursuer.pdf").0,
+            info_from_filename("6848%20Strategic%20Pursuer.pdf").title,
             "Strategic Pursuer"
         );
         assert_eq!(
-            info_from_filename("6849%20Satellite%20Patroller.pdf").0,
+            info_from_filename("6849%20Satellite%20Patroller.pdf").title,
             "Satellite Patroller"
         );
     }

@@ -37,6 +37,10 @@
             }
         }
 
+        p {
+            text-align: center;
+        }
+
         table {
             margin: 1em auto;
             border-collapse: collapse;
@@ -79,6 +83,9 @@
     </span>
     <% } %>
 </nav>
+<% if files.is_empty() { %>
+<p>No files available</p>
+<% } else { %>
 <table>
     <thead>
     <tr>
@@ -99,5 +106,6 @@
     <% } %>
     </tbody>
 </table>
+<% } %>
 </body>
 </html>

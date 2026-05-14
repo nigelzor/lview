@@ -33,6 +33,10 @@
             }
         }
 
+        p {
+            text-align: center;
+        }
+
         table {
             margin: 1em auto;
             border-collapse: collapse;
@@ -48,7 +52,7 @@
 
         /* number, year */
         tbody tr td:nth-child(1),
-        tbody tr td:nth-child(4) {
+        tbody tr td:nth-child(5) {
             text-align: center;
             white-space: nowrap;
         }
@@ -56,6 +60,11 @@
         th span {
             font-size: smaller;
             vertical-align: top;
+        }
+
+        td span {
+            margin-left: 0.2em;
+            float: right;
         }
 
         form {
@@ -116,7 +125,7 @@
     <% for file in sets { %>
     <tr>
         <td><a href="<%= file.view_url() %>"><%= file.info.number %></a></td>
-        <td><a href="<%= file.view_url() %>"><%= file.info.title %></a></td>
+        <td><%- render_file_count(file.files.len()) %><a href="<%= file.view_url() %>"><%= file.info.title %></a></td>
         <td>
             <% for (i, genre) in file.info.themes.iter().enumerate() { %>
             <% if i > 0 { %>
@@ -138,5 +147,8 @@
     <% } %>
     </tbody>
 </table>
+<% if all_link.is_some() { %>
+<p><%- all_link.unwrap() %></p>
+<% } %>
 </body>
 </html>

@@ -242,9 +242,17 @@ struct ComicInfo {
     web: String,
 }
 
-fn info_from_path(path: &Path) -> (String, Option<SetInfo>) {
+fn info_from_path(path: &Path) -> Result<(String, Option<SetInfo>)> {
+    // check for XMP sidecar
+    let xmp_path = path.with_extension("xmp");
+    if xmp_path.exists() {
+        let xmp = XmpMeta::from_file(xmp_path)?;
+        let info = SetInfo::from_xmp(&xmp)?;
+        return Ok((info.title.clone(), Some(info)));
+    }
+
     let filename = path.file_stem().unwrap().to_str().unwrap();
-    info_from_filename(filename)
+    Ok(info_from_filename(filename))
 }
 
 fn info_from_filename(filename: &str) -> (String, Option<SetInfo>) {
@@ -340,7 +348,7 @@ impl File {
                 // println!("{:?}", info);
                 (info.title.clone(), Some(info.into()))
             }
-            _ => info_from_path(relative_path),
+            _ => info_from_path(&path)?,
         };
 
         Ok(Self {
@@ -359,16 +367,7 @@ impl File {
         let file = fs::File::open(&path)?;
         let metadata = file.metadata()?;
 
-        // check for XMP sidecar
-        let xmp_path = path.with_extension("xmp");
-        let (title, info) = if xmp_path.exists() {
-            let xmp = XmpMeta::from_file(xmp_path)?;
-            let info = SetInfo::from_xmp(&xmp)?;
-            (info.title.clone(), Some(info))
-        } else {
-            info_from_path(relative_path)
-        };
-
+        let (title, info) = info_from_path(&path)?;
         let pdf_document = pdf::file::FileOptions::cached().open(&path)?;
         let pages = pdf_document.num_pages();
 

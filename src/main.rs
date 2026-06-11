@@ -352,7 +352,7 @@ fn set_from_id<'a>(id: &'_ str, hint: Option<&'_ str>) -> Option<&'a rebrickable
 }
 
 impl File {
-    fn from_path(path: PathBuf, dir: &Path) -> Result<Self> {
+    fn from_path(path: &Path, dir: &Path) -> Result<Self> {
         match path.extension().map(|e| e.to_str()).flatten() {
             Some("cbz") => Self::from_cbz(path, dir),
             Some("pdf") => Self::from_pdf(path, dir),
@@ -360,7 +360,7 @@ impl File {
         }
     }
 
-    fn from_cbz(path: PathBuf, dir: &Path) -> Result<Self> {
+    fn from_cbz(path: &Path, dir: &Path) -> Result<Self> {
         let relative_path = path.strip_prefix(dir)?;
         let file = fs::File::open(&path)?;
         let metadata = file.metadata()?;
@@ -392,7 +392,7 @@ impl File {
         Ok(Self {
             title: title_and_info.title,
             relative_path: relative_path.to_str().context("invalid path")?.to_owned(),
-            path,
+            path: path.to_owned(),
             info: title_and_info.set_info,
             pages,
             size: metadata.len(),
@@ -401,7 +401,7 @@ impl File {
         })
     }
 
-    fn from_pdf(path: PathBuf, dir: &Path) -> Result<Self> {
+    fn from_pdf(path: &Path, dir: &Path) -> Result<Self> {
         let relative_path = path.strip_prefix(dir)?;
         let file = fs::File::open(&path)?;
         let metadata = file.metadata()?;
@@ -413,7 +413,7 @@ impl File {
         Ok(Self {
             title: title_and_info.title,
             relative_path: relative_path.to_str().context("invalid path")?.to_owned(),
-            path,
+            path: path.to_owned(),
             info: title_and_info.set_info,
             pages: pages as usize,
             size: metadata.len(),
@@ -580,10 +580,10 @@ async fn main() -> Result<()> {
     println!("found {} files", entries.len());
     let files = entries
         .into_iter()
-        .flat_map(|e| match File::from_path(e, &dir) {
+        .flat_map(|e| match File::from_path(&e, &dir) {
             Ok(file) => Some(file),
             Err(err) => {
-                eprintln!("Error while reading file: {}", err);
+                eprintln!("Error while reading file {:?}: {}", e, err);
                 None
             }
         })

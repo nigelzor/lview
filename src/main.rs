@@ -432,28 +432,7 @@ impl File {
 
     fn source(&self) -> String {
         let source_url = self.source.as_ref().unwrap_or(&self.relative_path);
-        static BRICKSET_LIBRARY_RE: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r"^(?:https?://)?(images\.)?brickset\.com/library/").unwrap()
-        });
-        if BRICKSET_LIBRARY_RE.is_match(source_url) {
-            return "Brickset Library".to_owned();
-        }
-        static BRICKSAFE_USER_RE: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"^(?:https?://)?bricksafe\.com/files/(.+?)/").unwrap());
-        if let Some(info) = BRICKSAFE_USER_RE.captures(&self.relative_path) {
-            return format!("Bricksafe / {}", info.get(1).unwrap().as_str());
-        }
-        static PEERON_RE: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"^(?:https?://)?(www\.)?peeron\.com/").unwrap());
-        if PEERON_RE.is_match(source_url) {
-            return "Peeron".to_owned();
-        }
-        static LEGO_RE: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"^(?:https?://)?(www\.)?lego\.com/").unwrap());
-        if LEGO_RE.is_match(source_url) {
-            return "Lego".to_owned();
-        }
-        "".to_owned()
+        format_source(source_url)
     }
 
     fn number(&self) -> &str {
@@ -481,6 +460,36 @@ impl File {
             self.modified.duration_since(UNIX_EPOCH).unwrap().as_secs()
         )
     }
+}
+
+fn format_source(url: &str) -> String {
+    static BRICKSET_LIBRARY_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^(?:https?://)?(?:images\.)?brickset\.com/library/").unwrap()
+    });
+    if BRICKSET_LIBRARY_RE.is_match(url) {
+        return "Brickset Library".to_owned();
+    }
+    static BRICKSAFE_USER_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^(?:https?://)?bricksafe\.com/files/(.+?)/").unwrap());
+    if let Some(info) = BRICKSAFE_USER_RE.captures(url) {
+        return format!("Bricksafe / {}", info.get(1).unwrap().as_str());
+    }
+    static PEERON_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^(?:https?://)?(?:www\.)?peeron\.com/").unwrap());
+    if PEERON_RE.is_match(url) {
+        return "Peeron".to_owned();
+    }
+    static LEGO_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^(?:https?://)?(?:www\.)?lego\.com/").unwrap());
+    if LEGO_RE.is_match(url) {
+        return "Lego".to_owned();
+    }
+    static URL_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^https?://(?:www\.)?([^/]+)").unwrap());
+    if let Some(info) = URL_RE.captures(url) {
+        return info.get(1).unwrap().as_str().to_owned();
+    }
+    "".to_owned()
 }
 
 fn genre_search_url(genre: &str) -> String {
@@ -935,6 +944,25 @@ mod tests {
         assert_eq!(split_name("123 Hello"), (123, " Hello"));
         assert_eq!(split_name("Hello"), (u32::MAX, "Hello"));
         assert_eq!(split_name("Hello 123"), (u32::MAX, "Hello 123"));
+    }
+
+    #[test]
+    fn test_format_source() {
+        assert_eq!(format_source("8891-1.pdf"), "");
+        assert_eq!(
+            format_source("http://www.peeron.com/scans/1462-1/"),
+            "Peeron"
+        );
+        assert_eq!(
+            format_source("images.brickset.com/library/ideasbooks/200.pdf"),
+            "Brickset Library"
+        );
+        assert_eq!(
+            format_source(
+                "https://lego.brickinstructions.com/lego_instructions/set/8082/Instructions"
+            ),
+            "lego.brickinstructions.com"
+        );
     }
 }
 

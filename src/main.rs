@@ -268,6 +268,7 @@ fn info_from_path(path: &Path) -> Result<TitleAndInfo> {
     Ok(info_from_filename(filename))
 }
 
+/// `filename` should not include file extension
 fn info_from_filename(filename: &str) -> TitleAndInfo {
     let mut filename = filename.to_owned();
 
@@ -936,11 +937,11 @@ mod tests {
         assert_eq!(info_from_filename("8891").title, "Idea Book 8891");
         assert_eq!(info_from_filename("8891 (1)").title, "Idea Book 8891 (1)");
         assert_eq!(
-            info_from_filename("6848%20Strategic%20Pursuer.pdf").title,
+            info_from_filename("6848%20Strategic%20Pursuer").title,
             "Strategic Pursuer"
         );
         assert_eq!(
-            info_from_filename("6849%20Satellite%20Patroller.pdf").title,
+            info_from_filename("6849%20Satellite%20Patroller").title,
             "Satellite Patroller"
         );
     }

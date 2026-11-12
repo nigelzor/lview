@@ -14,7 +14,7 @@ quick-xml = { version = "0.39.2", features = ["serialize"] }
 sailfish = "0.10.1"
 serde = { version = "1.0.192", features = ["derive"] }
 tokio = { version = "1.34.0", features = ["full"] }
-zip = { version = "8.2.0", features = ["chrono"] }
+zip = { version = "9.4.0", features = ["chrono"] }
 form_urlencoded = "1.2.0"
 percent-encoding = "2.3.0"
 serde_with = "3.4.0"

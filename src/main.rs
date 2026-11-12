@@ -172,7 +172,13 @@ impl File {
         let metadata = file.metadata()?;
 
         let mut zip = ZipArchive::new(file)?;
-        let pages = zip.file_names().filter(|f| should_expose(f)).count();
+        let pages = zip
+            .file_names()
+            .filter(|r| match r {
+                Ok(filename) => should_expose(filename),
+                _ => false,
+            })
+            .count();
         let (title, info) = match zip.by_name("ComicInfo.xml") {
             Ok(info_xml) => {
                 let info: ComicInfo = quick_xml::de::from_reader(BufReader::new(info_xml))?;
@@ -610,7 +616,13 @@ async fn show_file(
 fn show_cbz(file: &File, path: String, query: ShowFileQuery) -> Result<Response, InternalError> {
     let mut zip = ZipArchive::new(fs::File::open(&file.path)?)?;
 
-    let mut pages: Vec<&str> = zip.file_names().filter(|f| should_expose(f)).collect();
+    let mut pages = zip
+        .file_names()
+        .filter(|r| match r {
+            Ok(filename) => should_expose(filename),
+            _ => false,
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     pages.sort();
     if pages.is_empty() {
         return Ok(StatusCode::NOT_FOUND.into_response());
@@ -663,7 +675,7 @@ fn show_cbz(file: &File, path: String, query: ShowFileQuery) -> Result<Response,
     } else {
         None
     };
-    let current = pages[page_index];
+    let current = &pages[page_index];
     let next = pages.get(page_index + 1);
 
     let ctx = ViewTemplate {

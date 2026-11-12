@@ -318,7 +318,7 @@ fn info_from_filename(filename: &str) -> TitleAndInfo {
     }
 }
 
-fn set_from_id<'a>(id: &'_ str, hint: Option<&'_ str>) -> Option<&'a rebrickable::SetInfo> {
+fn set_from_id(id: &str, hint: Option<&str>) -> Option<&'static rebrickable::SetInfo> {
     // exact match
     if let Some(info) = SETS.get(id) {
         return Some(info);

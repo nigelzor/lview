@@ -11,7 +11,7 @@ axum = { version = "0.8.1", features = ["macros"] }
 byte-unit = "4.0.19"
 clap = { version = "4.4.8", features = ["derive"] }
 quick-xml = { version = "0.39.2", features = ["serialize"] }
-sailfish = "0.10.1"
+sailfish = "0.11.9"
 serde = { version = "1.0.192", features = ["derive"] }
 tokio = { version = "1.34.0", features = ["full"] }
 zip = { version = "9.4.0", features = ["chrono"] }
